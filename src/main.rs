@@ -1,4 +1,7 @@
+use std::collections::HashSet;
 use std::env::args;
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
@@ -67,15 +70,38 @@ fn remove_unused_includes<'a, P, S>(
     S: AsRef<str>,
 {
     if let Ok(includes) = analyze::unused_includes(clang, &file, args) {
-        remove_includes(&file, &includes);
+        println!("Remove includes:");
+        for (line, file) in &includes {
+            println!(" - {}: {:?}", line, file);
+        }
+        if !includes.is_empty() {
+            remove_includes(&file, &includes).expect("Could not remove includes");
+        }
 
         // TODO: Find deps and propergate
     }
 }
 
-fn remove_includes<P: AsRef<Path>>(file: P, includes: &[(usize, PathBuf)]) {
-    println!("Remove includes:");
-    for (line, file) in includes {
-        println!(" - {}: {:?}", line, file);
-    }
+fn remove_includes<P: AsRef<Path>>(file: P, includes: &[(usize, PathBuf)]) -> io::Result<()> {
+    let temppath = file.as_ref().with_extension(".tmp");
+    {
+        let original = BufReader::new(File::open(&file)?);
+        let mut tempfile = BufWriter::new(File::create(&temppath)?);
+
+        // line numbers starting with 1
+        let lines_to_remove = includes.iter().map(|i| i.0 - 1).collect::<HashSet<_>>();
+
+        for (i, line) in original.split(b'\n').enumerate() {
+            let line = line?;
+            if !lines_to_remove.contains(&i) {
+                tempfile.write(&line)?;
+                tempfile.write(b"\n")?;
+            }
+        }
+    };
+
+    fs::remove_file(&file)?;
+    fs::rename(&temppath, &file)?;
+
+    Ok(())
 }

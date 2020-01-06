@@ -1,9 +1,35 @@
 use std::collections::{HashMap, HashSet};
+use std::iter::{self, FromIterator};
 use std::path::PathBuf;
 
 #[derive(Debug)]
+struct IncludeEntry {
+    includes: HashSet<PathBuf>,
+    used: bool,
+    costs: usize,
+}
+
+impl IncludeEntry {
+    fn new() -> IncludeEntry {
+        IncludeEntry {
+            includes: HashSet::new(),
+            used: false,
+            costs: 0,
+        }
+    }
+
+    fn new_with(include: PathBuf) -> IncludeEntry {
+        IncludeEntry {
+            includes: HashSet::from_iter(iter::once(include)),
+            used: false,
+            costs: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct IncludeGraph {
-    includes: HashMap<PathBuf, HashSet<PathBuf>>,
+    includes: HashMap<PathBuf, IncludeEntry>,
 }
 
 impl IncludeGraph {
@@ -13,65 +39,71 @@ impl IncludeGraph {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.includes.len()
+    }
+
     pub fn insert(&mut self, from: PathBuf, to: PathBuf) {
-        if let Some(includes) = self.includes.get_mut(&from) {
-            includes.insert(to);
+        if let Some(entry) = self.includes.get_mut(&from) {
+            entry.includes.insert(to);
         } else {
-            let mut includes = HashSet::new();
-            includes.insert(to);
-            self.includes.insert(from, includes);
+            self.includes.insert(from, IncludeEntry::new_with(to));
         }
     }
 
-    pub fn get_recurse(&self, key: &PathBuf, set: &mut HashSet<PathBuf>) {
-        if let Some(includes) = self.includes.get(key) {
-            for include in includes {
-                if !set.contains(include) {
-                    set.insert(include.clone());
-                    self.get_recurse(include, set);
+    pub fn mark_used(&mut self, key: &PathBuf) {
+        if let Some(entry) = self.includes.get_mut(key) {
+            entry.used = true;
+        } else {
+            let mut entry = IncludeEntry::new();
+            entry.used = true;
+            self.includes.insert(key.clone(), entry);
+        }
+    }
+
+    pub fn unused<'a>(&'a self, main: &PathBuf) -> HashSet<&'a PathBuf> {
+        let mut result = HashSet::new();
+
+        if let Some(entry) = self.includes.get(main) {
+            for (i, include) in entry.includes.iter().enumerate() {
+                if !self.is_used_impl(include, i + 1) {
+                    result.insert(include);
+                }
+            }
+            if !entry.includes.is_empty() {
+                for entry in self.includes.values() {
+                    unsafe {
+                        let costs = &entry.costs as *const usize as *mut usize;
+                        *costs = 0; // reset
+                    }
                 }
             }
         }
+
+        result
     }
 
-    pub fn flatten(mut self, main: &PathBuf) -> DirectIncludeUsages {
-        let mut flat_map = HashMap::new();
-
-        if let Some(main) = self.includes.remove(main) {
-            for include in main {
-                let mut includes = HashSet::new();
-                self.get_recurse(&include, &mut includes);
-                flat_map.insert(include, (false, includes));
+    /// Waring: breaks const contract by marking visited nodes
+    fn is_used_impl<'a>(&'a self, key: &PathBuf, id: usize) -> bool {
+        if let Some(entry) = self.includes.get(key) {
+            if entry.costs == id {
+                false // Circle detected!
+            } else if entry.used {
+                true
+            } else {
+                unsafe {
+                    let costs = &entry.costs as *const usize as *mut usize;
+                    *costs = id; // Mark as visited
+                }
+                for include in &entry.includes {
+                    if self.is_used_impl(include, id) {
+                        return true;
+                    }
+                }
+                false
             }
+        } else {
+            false
         }
-
-        DirectIncludeUsages { includes: flat_map }
-    }
-}
-
-#[derive(Debug)]
-pub struct DirectIncludeUsages {
-    includes: HashMap<PathBuf, (bool, HashSet<PathBuf>)>,
-}
-
-impl DirectIncludeUsages {
-    pub fn mark_used(&mut self, to: &PathBuf) {
-        if let Some(include) = self.includes.get_mut(to) {
-            include.0 = true;
-        }
-
-        for include in self.includes.values_mut() {
-            if include.1.contains(to) {
-                include.0 = true;
-                break;
-            }
-        }
-    }
-
-    pub fn unused<'a>(&'a self) -> HashSet<&'a PathBuf> {
-        self.includes
-            .iter()
-            .filter_map(|(path, include)| if !include.0 { Some(path) } else { None })
-            .collect()
     }
 }

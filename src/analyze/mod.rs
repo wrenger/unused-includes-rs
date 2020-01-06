@@ -4,7 +4,7 @@ use std::vec::Vec;
 use clang::{Clang, Entity, EntityKind, EntityVisitResult, Index};
 
 mod includes;
-use includes::{DirectIncludeUsages, IncludeGraph};
+use includes::IncludeGraph;
 
 trait EntityExt {
     fn get_sourcefile(&self) -> Option<PathBuf>;
@@ -37,23 +37,26 @@ fn find_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
     EntityVisitResult::Continue
 }
 
-fn mark_includes(entity: Entity, includes: &mut DirectIncludeUsages) -> EntityVisitResult {
+fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResult {
     if !entity.is_in_main_file() {
         return EntityVisitResult::Continue;
     }
-    // println!("ref {:?}", entity);
 
     match entity.get_kind() {
-        EntityKind::DeclRefExpr | EntityKind::TypeRef => {
-            println!("ref {:?}", entity);
+        EntityKind::DeclRefExpr
+        | EntityKind::TypeRef
+        | EntityKind::TemplateRef
+        | EntityKind::MacroExpansion => {
             if let Some(reference) = entity.get_reference() {
-                println!(" -> ref {:?}", reference);
-                if let Some(to) = reference.get_sourcefile() {
-                    includes.mark_used(&to);
+                if !reference.is_in_main_file() {
+                    if let Some(to) = reference.get_sourcefile() {
+                        println!(" - {:?}: {:?}", entity.get_display_name(), to);
+                        includes.mark_used(&to);
+                    }
                 }
             }
         }
-        _ => {}
+        _ => (),
     }
 
     EntityVisitResult::Recurse
@@ -82,19 +85,17 @@ where
             tu.get_entity()
                 .visit_children(|entity, _| find_includes(entity, &mut includes));
 
-            println!("includes {:?}", includes);
-
-            let mut includes = includes.flatten(&PathBuf::from(file.as_ref()));
-
-            println!("flatten {:?}", includes);
+            println!("includes {}", includes.len());
 
             tu.get_entity()
                 .visit_children(|entity, _| mark_includes(entity, &mut includes));
 
-            println!("unused {:?}", includes.unused());
+            println!("includes {:?}", includes);
 
             if let Some(file) = tu.get_file(&file) {
-                let unused = includes.unused();
+                let unused = includes.unused(&file.get_path());
+                println!("unused {:?}", unused);
+
                 let mut result = Vec::with_capacity(unused.len());
 
                 file.visit_includes(|entity, source_range| {
