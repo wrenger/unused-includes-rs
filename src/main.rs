@@ -1,5 +1,9 @@
+use std::env::args;
 use std::path::{Path, PathBuf};
+use std::vec::Vec;
 
+#[macro_use]
+extern crate lazy_static;
 use clang::Clang;
 use multimap::MultiMap;
 use structopt::StructOpt;
@@ -9,29 +13,47 @@ mod dependencies;
 mod util;
 
 #[derive(StructOpt)]
-struct Args {
+struct ToolArgs {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
-    #[structopt(default_value = "")]
-    args: String,
     #[structopt(long, short, default_value = "**/*")]
     filter: String,
+    #[structopt(long, short, default_value = "compile_commands.json")]
+    compilations: String,
 }
 
 fn main() {
-    let Args { file, args, filter } = Args::from_args();
+    // Split command line args at '--'
+    let (tool_args, mut ci_args) = {
+        let mut args = args().collect::<Vec<_>>();
+        if let Some(pos) = args.iter().position(|a| a == "--") {
+            let ci_args = args.split_off(pos + 1);
+            args.pop();
+            (args, ci_args)
+        } else {
+            (args, vec![])
+        }
+    };
 
-    let deps = dependencies::index(&filter);
-    println!("deps: {:?}", deps);
+    let ToolArgs {
+        file,
+        filter,
+        compilations,
+    } = ToolArgs::from_iter(tool_args.iter());
+
+    let deps = MultiMap::new();
+    // let deps = dependencies::index(&filter);
+    // println!("deps: {:?}", deps);
 
     let clang = Clang::new().expect("Could not load libclang");
     println!("libclang: {}", clang::get_version());
 
-    let args = shlex::split(&args).expect("Malformed compiler args");
+    println!("ci args {:?}", ci_args);
+    ci_args.pop();
     let filter = glob::Pattern::new(&filter).expect("Malformed filter pattern");
-    let include_paths = util::include_paths(&args, &filter);
+    let include_paths = util::include_paths(&ci_args, &filter);
 
-    remove_unused_includes(file, &args, &include_paths, &deps, &clang);
+    remove_unused_includes(file, &ci_args, &include_paths, &deps, &clang);
 }
 
 fn remove_unused_includes<'a, P, S>(
@@ -51,7 +73,9 @@ fn remove_unused_includes<'a, P, S>(
     }
 }
 
-fn remove_includes<P: AsRef<Path>>(file: P, includes: &[(usize, String)]) {
-
-
+fn remove_includes<P: AsRef<Path>>(file: P, includes: &[(usize, PathBuf)]) {
+    println!("Remove includes:");
+    for (line, file) in includes {
+        println!(" - {}: {:?}", line, file);
+    }
 }

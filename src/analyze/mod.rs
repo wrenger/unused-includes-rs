@@ -63,7 +63,7 @@ pub fn unused_includes<'a, P, S>(
     clang: &'a Clang,
     file: P,
     args: &[S],
-) -> Result<Vec<(usize, String)>, ()>
+) -> Result<Vec<(usize, PathBuf)>, ()>
 where
     P: AsRef<Path>,
     S: AsRef<str>,
@@ -93,7 +93,25 @@ where
 
             println!("unused {:?}", includes.unused());
 
-            Ok(vec![])
+            if let Some(file) = tu.get_file(&file) {
+                let unused = includes.unused();
+                let mut result = Vec::with_capacity(unused.len());
+
+                file.visit_includes(|entity, source_range| {
+                    if let Some(file) = entity.get_file() {
+                        let path = file.get_path();
+                        if unused.contains(&&path) {
+                            let start = source_range.get_start().get_file_location();
+                            result.push((start.line as usize, path));
+                        }
+                    }
+                    true
+                });
+
+                Ok(result)
+            } else {
+                Err(())
+            }
         }
         Err(err) => {
             eprintln!("Parsing error: {}", err);

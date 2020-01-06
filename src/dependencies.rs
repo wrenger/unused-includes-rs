@@ -36,8 +36,12 @@ fn is_sourcefile<P: AsRef<Path>>(path: P) -> bool {
 }
 
 fn parse_includes<P: AsRef<Path>>(path: P) -> Vec<String> {
-    let include_re =
-        regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[\">]").unwrap();
+    // Only local includes
+    lazy_static! {
+        static ref INCLUDE_RE: regex::Regex =
+            regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
+    }
+
 
     if let Ok(file) = File::open(path) {
         let reader = BufReader::new(file);
@@ -45,8 +49,8 @@ fn parse_includes<P: AsRef<Path>>(path: P) -> Vec<String> {
 
         for line in reader.lines() {
             if let Ok(line) = line {
-                if include_re.is_match(&line) {
-                    let caps = include_re.captures(&line).unwrap();
+                if INCLUDE_RE.is_match(&line) {
+                    let caps = INCLUDE_RE.captures(&line).unwrap();
                     includes.push(String::from(&caps[1]))
                 }
             } else {

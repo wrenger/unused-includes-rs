@@ -23,17 +23,14 @@ impl IncludeGraph {
         }
     }
 
-    pub fn get_recurse(&self, key: &PathBuf) -> HashSet<PathBuf> {
+    pub fn get_recurse(&self, key: &PathBuf, set: &mut HashSet<PathBuf>) {
         if let Some(includes) = self.includes.get(key) {
-            let mut result = includes.clone();
-
             for include in includes {
-                result.extend(self.get_recurse(include));
+                if !set.contains(include) {
+                    set.insert(include.clone());
+                    self.get_recurse(include, set);
+                }
             }
-
-            result
-        } else {
-            HashSet::new()
         }
     }
 
@@ -42,7 +39,8 @@ impl IncludeGraph {
 
         if let Some(main) = self.includes.remove(main) {
             for include in main {
-                let includes = self.get_recurse(&include);
+                let mut includes = HashSet::new();
+                self.get_recurse(&include, &mut includes);
                 flat_map.insert(include, (false, includes));
             }
         }
@@ -70,7 +68,7 @@ impl DirectIncludeUsages {
         }
     }
 
-    pub fn unused<'a>(&'a self) -> Vec<&'a PathBuf> {
+    pub fn unused<'a>(&'a self) -> HashSet<&'a PathBuf> {
         self.includes
             .iter()
             .filter_map(|(path, include)| if !include.0 { Some(path) } else { None })
