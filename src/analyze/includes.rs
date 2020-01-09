@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::iter::{self, FromIterator};
-use std::path::PathBuf;
+
+pub type FileID = (u64, u64, u64);
 
 #[derive(Debug)]
 struct IncludeEntry {
-    includes: HashSet<PathBuf>,
+    includes: HashSet<FileID>,
     used: bool,
     costs: usize,
 }
@@ -18,7 +19,7 @@ impl IncludeEntry {
         }
     }
 
-    fn new_with(include: PathBuf) -> IncludeEntry {
+    fn new_with(include: FileID) -> IncludeEntry {
         IncludeEntry {
             includes: HashSet::from_iter(iter::once(include)),
             used: false,
@@ -29,7 +30,7 @@ impl IncludeEntry {
 
 #[derive(Debug)]
 pub struct IncludeGraph {
-    includes: HashMap<PathBuf, IncludeEntry>,
+    includes: HashMap<FileID, IncludeEntry>,
 }
 
 impl IncludeGraph {
@@ -43,7 +44,7 @@ impl IncludeGraph {
         self.includes.len()
     }
 
-    pub fn insert(&mut self, from: PathBuf, to: PathBuf) {
+    pub fn insert(&mut self, from: FileID, to: FileID) {
         if let Some(entry) = self.includes.get_mut(&from) {
             entry.includes.insert(to);
         } else {
@@ -51,7 +52,7 @@ impl IncludeGraph {
         }
     }
 
-    pub fn mark_used(&mut self, key: &PathBuf) {
+    pub fn mark_used(&mut self, key: &FileID) {
         if let Some(entry) = self.includes.get_mut(key) {
             entry.used = true;
         } else {
@@ -61,7 +62,7 @@ impl IncludeGraph {
         }
     }
 
-    pub fn unused<'a>(&'a self, main: &PathBuf) -> HashSet<&'a PathBuf> {
+    pub fn unused<'a>(&'a self, main: &FileID) -> HashSet<&'a FileID> {
         let mut result = HashSet::new();
 
         if let Some(entry) = self.includes.get(main) {
@@ -84,7 +85,7 @@ impl IncludeGraph {
     }
 
     /// Waring: breaks const contract by marking visited nodes
-    fn is_used_impl<'a>(&'a self, key: &PathBuf, id: usize) -> bool {
+    fn is_used_impl<'a>(&'a self, key: &FileID, id: usize) -> bool {
         if let Some(entry) = self.includes.get(key) {
             if entry.costs == id {
                 false // Circle detected!

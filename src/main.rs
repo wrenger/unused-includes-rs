@@ -12,6 +12,8 @@ use multimap::MultiMap;
 use structopt::StructOpt;
 
 mod analyze;
+mod compilations;
+use compilations::CompilationsExt;
 mod dependencies;
 mod util;
 
@@ -19,15 +21,17 @@ mod util;
 struct ToolArgs {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
-    #[structopt(long, short, default_value = "**/*")]
-    filter: String,
-    #[structopt(long, short, default_value = "compile_commands.json")]
-    compilations: String,
+    #[structopt(short, long, default_value = "**/*")]
+    filter: glob::Pattern,
+    #[structopt(short, long = "compilations", parse(from_os_str))]
+    comp: Option<PathBuf>,
+    #[structopt(long, parse(from_os_str))]
+    index: Option<PathBuf>,
 }
 
 fn main() {
     // Split command line args at '--'
-    let (tool_args, mut ci_args) = {
+    let (tool_args, ci_args) = {
         let mut args = args().collect::<Vec<_>>();
         if let Some(pos) = args.iter().position(|a| a == "--") {
             let ci_args = args.split_off(pos + 1);
@@ -41,20 +45,47 @@ fn main() {
     let ToolArgs {
         file,
         filter,
-        compilations,
+        comp,
+        index,
     } = ToolArgs::from_iter(tool_args.iter());
 
-    let deps = MultiMap::new();
-    // let deps = dependencies::index(&filter);
-    // println!("deps: {:?}", deps);
+    let file = file.canonicalize().unwrap();
+
+    let (include_paths, deps, ci_args) = if let Some(comp) = comp {
+        let compilations =
+            compilations::parse(comp, &filter).expect("Error parsing compilation database");
+
+        let include_paths = compilations.collect_include_paths();
+        println!("include paths {:?}", include_paths);
+
+        let deps = if let Some(index) = index {
+            serde_yaml::from_reader::<File, MultiMap<PathBuf, PathBuf>>(
+                File::open(index).expect("Error opening include index"),
+            )
+            .expect("Error opening include index")
+        } else {
+            dependencies::index(&compilations.keys().collect::<Vec<_>>(), &include_paths)
+        };
+        println!("deps: {:?}", deps);
+
+        let mut new_ci_args = compilations
+            .get_related_args(&file, &deps)
+            .expect("Missing compiler args in compilation database");
+        // add custom args
+        new_ci_args.extend(ci_args.into_iter());
+
+        (include_paths, deps, new_ci_args)
+    } else {
+        let include_paths = util::include_paths(&ci_args.join(" "))
+            .map(|e| PathBuf::from(e))
+            .collect::<Vec<_>>();
+        (include_paths, MultiMap::new(), ci_args)
+    };
 
     let clang = Clang::new().expect("Could not load libclang");
     println!("libclang: {}", clang::get_version());
 
     println!("ci args {:?}", ci_args);
-    ci_args.pop();
-    let filter = glob::Pattern::new(&filter).expect("Malformed filter pattern");
-    let include_paths = util::include_paths(&ci_args, &filter);
 
     remove_unused_includes(file, &ci_args, &include_paths, &deps, &clang);
 }
@@ -63,7 +94,7 @@ fn remove_unused_includes<'a, P, S>(
     file: P,
     args: &[S],
     include_paths: &[PathBuf],
-    deps: &MultiMap<String, PathBuf>,
+    deps: &MultiMap<PathBuf, PathBuf>,
     clang: &'a Clang,
 ) where
     P: AsRef<Path>,
@@ -75,7 +106,7 @@ fn remove_unused_includes<'a, P, S>(
             println!(" - {}: {:?}", line, file);
         }
         if !includes.is_empty() {
-            remove_includes(&file, &includes).expect("Could not remove includes");
+            // remove_includes(&file, &includes).expect("Could not remove includes");
         }
 
         // TODO: Find deps and propergate

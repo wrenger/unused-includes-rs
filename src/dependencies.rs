@@ -4,17 +4,28 @@ use std::path::{Path, PathBuf};
 
 use multimap::MultiMap;
 
-pub fn index(filter: &str) -> MultiMap<String, PathBuf> {
+use super::util;
+
+/// Creates an index with all sources and their dependencies (sources that include them).
+pub fn index<P>(files: &[P], directories: &[PathBuf]) -> MultiMap<PathBuf, PathBuf>
+where
+    P: AsRef<Path>,
+{
     let mut map = MultiMap::new();
 
-    for path in glob::glob(filter)
-        .expect("Malformed filter pattern")
-        .filter_map(Result::ok)
-    {
-        if is_sourcefile(&path) {
-            println!("Deps match {:?}", path);
-            for include in parse_includes(&path) {
-                map.insert(include, path.clone());
+    for file in files {
+        add_file(file.as_ref(), &mut map, directories);
+    }
+
+    for dir in directories {
+        if let Ok(read_dir) = util::read_dir_rec(dir) {
+            for path in read_dir {
+                if let Ok(path) = path {
+                    let path = path.path();
+                    if is_header_file(&path) {
+                        add_file(&path, &mut map, directories);
+                    }
+                }
             }
         }
     }
@@ -22,11 +33,32 @@ pub fn index(filter: &str) -> MultiMap<String, PathBuf> {
     map
 }
 
-fn is_sourcefile<P: AsRef<Path>>(path: P) -> bool {
+fn add_file<P: AsRef<Path>>(
+    file: P,
+    map: &mut MultiMap<PathBuf, PathBuf>,
+    include_paths: &[PathBuf],
+) {
+    for include in parse_includes(&file) {
+        if let Some(include) = util::find_include(&file, &include, include_paths) {
+            match (
+                PathBuf::from(include).canonicalize(),
+                PathBuf::from(file.as_ref()).canonicalize(),
+            ) {
+                (Ok(include), Ok(file)) => map.insert(include, file),
+                _ => {}
+            }
+        } else {
+            println!("Missing include {} {:?}", include, file.as_ref());
+        }
+    }
+}
+
+/// Returns whether the given path points to a header file
+fn is_header_file<P: AsRef<Path>>(path: P) -> bool {
     let path = path.as_ref();
     if path.is_file() {
         if let Some(extension) = path.extension() {
-            extension == "c" || extension == "h" || extension == "cpp" || extension == "hpp"
+            extension == "h" || extension == "hpp"
         } else {
             false
         }
@@ -42,6 +74,8 @@ fn parse_includes<P: AsRef<Path>>(path: P) -> Vec<String> {
             regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
     }
 
+    // TODO: Ignore includes in #if...#endif
+    // Also handle header guards and #pragma once
 
     if let Ok(file) = File::open(path) {
         let reader = BufReader::new(file);

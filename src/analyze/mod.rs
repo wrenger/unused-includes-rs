@@ -4,18 +4,18 @@ use std::vec::Vec;
 use clang::{Clang, Entity, EntityKind, EntityVisitResult, Index};
 
 mod includes;
-use includes::IncludeGraph;
+use includes::{IncludeGraph, FileID};
 
 trait EntityExt {
-    fn get_sourcefile(&self) -> Option<PathBuf>;
+    fn get_sourcefile(&self) -> Option<FileID>;
 }
 
 impl<'tu> EntityExt for Entity<'tu> {
-    fn get_sourcefile(&self) -> Option<PathBuf> {
+    fn get_sourcefile(&self) -> Option<FileID> {
         if let Some(location) = self.get_location() {
             let location = location.get_expansion_location();
             if let Some(file) = location.file {
-                Some(file.get_path())
+                Some(file.get_id())
             } else {
                 None
             }
@@ -29,7 +29,7 @@ fn find_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
     if entity.get_kind() == EntityKind::InclusionDirective {
         if let Some(from) = entity.get_sourcefile() {
             if let Some(to) = entity.get_file() {
-                includes.insert(from, to.get_path());
+                includes.insert(from, to.get_id());
             }
         }
     }
@@ -50,7 +50,6 @@ fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
             if let Some(reference) = entity.get_reference() {
                 if !reference.is_in_main_file() {
                     if let Some(to) = reference.get_sourcefile() {
-                        println!(" - {:?}: {:?}", entity.get_display_name(), to);
                         includes.mark_used(&to);
                     }
                 }
@@ -90,10 +89,8 @@ where
             tu.get_entity()
                 .visit_children(|entity, _| mark_includes(entity, &mut includes));
 
-            println!("includes {:?}", includes);
-
             if let Some(file) = tu.get_file(&file) {
-                let unused = includes.unused(&file.get_path());
+                let unused = includes.unused(&file.get_id());
                 println!("unused {:?}", unused);
 
                 let mut result = Vec::with_capacity(unused.len());
@@ -101,7 +98,7 @@ where
                 file.visit_includes(|entity, source_range| {
                     if let Some(file) = entity.get_file() {
                         let path = file.get_path();
-                        if unused.contains(&&path) {
+                        if unused.contains(&&file.get_id()) {
                             let start = source_range.get_start().get_file_location();
                             result.push((start.line as usize, path));
                         }
