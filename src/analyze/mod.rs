@@ -4,7 +4,7 @@ use std::vec::Vec;
 use clang::{Clang, Entity, EntityKind, EntityVisitResult, Index};
 
 mod includes;
-use includes::{IncludeGraph, FileID};
+use includes::{FileID, IncludeGraph};
 
 trait EntityExt {
     fn get_sourcefile(&self) -> Option<FileID>;
@@ -61,11 +61,37 @@ fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
     EntityVisitResult::Recurse
 }
 
-pub fn unused_includes<'a, P, S>(
-    clang: &'a Clang,
-    file: P,
-    args: &[S],
-) -> Result<Vec<(usize, PathBuf)>, ()>
+pub struct Include {
+    pub name: String,
+    pub path: PathBuf,
+    pub line: usize,
+}
+
+impl Include {
+    pub fn new(name: String, path: PathBuf, line: usize) -> Include {
+        Include { name, path, line }
+    }
+
+    pub fn get_include<P: AsRef<Path>>(&self, file: P, include_paths: &[PathBuf]) -> String {
+        // Prefer relative includes if possible
+        if let Some(file) = file.as_ref().parent() {
+            // TODO: Allow from /src/ and /include/
+            if let Ok(relpath) = self.path.strip_prefix(file) {
+                return relpath.to_string_lossy().into();
+            }
+        }
+        // Check for include paths
+        for include_path in include_paths {
+            if let Ok(relpath) = self.path.strip_prefix(include_path) {
+                return relpath.to_string_lossy().into();
+            }
+        }
+        // Fallback for global includes
+        self.name.clone()
+    }
+}
+
+pub fn unused_includes<'a, P, S>(clang: &'a Clang, file: P, args: &[S]) -> Result<Vec<Include>, ()>
 where
     P: AsRef<Path>,
     S: AsRef<str>,
@@ -100,7 +126,11 @@ where
                         let path = file.get_path();
                         if unused.contains(&&file.get_id()) {
                             let start = source_range.get_start().get_file_location();
-                            result.push((start.line as usize, path));
+                            result.push(Include::new(
+                                entity.get_name().unwrap(),
+                                path,
+                                start.line as usize,
+                            ));
                         }
                     }
                     true

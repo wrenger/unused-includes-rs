@@ -86,7 +86,7 @@ fn parse_args(command: &str) -> Option<Vec<String>> {
     // Skip compiler
     if let Some(start) = command.find(' ') {
         if let Some(mut args) = shlex::split(&command[start..]) {
-            args.pop(); // Remove the file to be compiled
+            args.pop(); // Remove the input file arg
             if let Some(pos) = args.iter().position(|e| e == "-o") {
                 // Remove '-o <outfile>'
                 if pos + 1 < args.len() {

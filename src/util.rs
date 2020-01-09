@@ -14,7 +14,7 @@ pub fn include_paths<'a>(command: &'a str) -> impl Iterator<Item = &'a str> {
         .map(|caps| caps.get(2).unwrap().as_str())
 }
 
-/// Finds the corresponding file to the given include.
+/// Finds the corresponding filepath to the given `include`.
 ///
 /// It also handles relative includes and 'src/main/...' is correctly resolved.
 pub fn find_include<P, Q>(file: P, include: Q, include_paths: &[PathBuf]) -> Option<PathBuf>

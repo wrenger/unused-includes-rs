@@ -12,6 +12,7 @@ use multimap::MultiMap;
 use structopt::StructOpt;
 
 mod analyze;
+use analyze::Include;
 mod compilations;
 use compilations::CompilationsExt;
 mod dependencies;
@@ -66,7 +67,6 @@ fn main() {
         } else {
             dependencies::index(&compilations.keys().collect::<Vec<_>>(), &include_paths)
         };
-        println!("deps: {:?}", deps);
 
         let mut new_ci_args = compilations
             .get_related_args(&file, &deps)
@@ -85,8 +85,6 @@ fn main() {
     let clang = Clang::new().expect("Could not load libclang");
     println!("libclang: {}", clang::get_version());
 
-    println!("ci args {:?}", ci_args);
-
     remove_unused_includes(file, &ci_args, &include_paths, &deps, &clang);
 }
 
@@ -102,25 +100,43 @@ fn remove_unused_includes<'a, P, S>(
 {
     if let Ok(includes) = analyze::unused_includes(clang, &file, args) {
         println!("Remove includes:");
-        for (line, file) in &includes {
-            println!(" - {}: {:?}", line, file);
+        for include in &includes {
+            println!(
+                " - {}: {} -> {:?}",
+                include.line, include.name, include.path
+            );
         }
         if !includes.is_empty() {
-            // remove_includes(&file, &includes).expect("Could not remove includes");
+            remove_includes(&file, &includes).expect("Could not remove includes");
         }
 
-        // TODO: Find deps and propergate
+        if let Some(dependencies) = deps.get_vec(file.as_ref()) {
+            for dependency in dependencies {
+                println!("Check dependency {:?}", dependency);
+                for include in &includes {
+                    println!(" -- add {}", include.get_include(dependency, include_paths))
+                }
+                add_includes(dependency, &includes).expect("Could not propagate includes");
+
+                remove_unused_includes(dependency, args, include_paths, deps, clang);
+            }
+        }
     }
 }
 
-fn remove_includes<P: AsRef<Path>>(file: P, includes: &[(usize, PathBuf)]) -> io::Result<()> {
+fn add_includes<P: AsRef<Path>>(file: P, includes: &[Include]) -> io::Result<()> {
+    // TODO: add includes
+    Err(std::io::ErrorKind::Other.into())
+}
+
+fn remove_includes<P: AsRef<Path>>(file: P, includes: &[Include]) -> io::Result<()> {
     let temppath = file.as_ref().with_extension(".tmp");
     {
         let original = BufReader::new(File::open(&file)?);
         let mut tempfile = BufWriter::new(File::create(&temppath)?);
 
         // line numbers starting with 1
-        let lines_to_remove = includes.iter().map(|i| i.0 - 1).collect::<HashSet<_>>();
+        let lines_to_remove = includes.iter().map(|i| i.line - 1).collect::<HashSet<_>>();
 
         for (i, line) in original.split(b'\n').enumerate() {
             let line = line?;
