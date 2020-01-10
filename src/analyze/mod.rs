@@ -72,7 +72,11 @@ impl Include {
         Include { name, path, line }
     }
 
-    pub fn get_include<P: AsRef<Path>>(&self, file: P, include_paths: &[PathBuf]) -> (bool, String) {
+    pub fn get_include<P: AsRef<Path>>(
+        &self,
+        file: P,
+        include_paths: &[PathBuf],
+    ) -> (bool, String) {
         // Prefer relative includes if possible
         if let Some(file) = file.as_ref().parent() {
             // TODO: Allow from /src/ and /include/

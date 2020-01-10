@@ -7,6 +7,7 @@ use std::usize;
 use super::util;
 use super::{RE_ENDIF, RE_IF, RE_INCLUDE, RE_LOCAL_INCLUDE, RE_PRAGMA_ONCE};
 
+/// Collect includes ignoring those defined in #if..#endif blocks.
 pub fn parse_includes<P: AsRef<Path>>(path: P) -> HashSet<String> {
     let is_header = util::is_header_file(&path);
     if let Ok(mut file) = File::open(path) {
@@ -18,6 +19,9 @@ pub fn parse_includes<P: AsRef<Path>>(path: P) -> HashSet<String> {
     }
 }
 
+/// Collect includes ignoring those defined in #if..#endif blocks.
+///
+/// Also return the offset to the first (or second if its a sourcefile) include.
 fn parse_includes_file(
     file: &mut File,
     include_re: &regex::Regex,
@@ -63,6 +67,7 @@ fn parse_includes_file(
     Ok((offset, includes))
 }
 
+/// Adds the given `includes` in front of the old includes of the given file
 pub fn add_includes<P>(filepath: P, includes: Vec<(bool, String)>) -> io::Result<()>
 where
     P: AsRef<Path>,
@@ -98,6 +103,7 @@ where
     }
 }
 
+/// Removes the `includes` at the given lines from the `file`.
 pub fn remove_includes<P>(file: P, includes: &[usize]) -> io::Result<()>
 where
     P: AsRef<Path>,

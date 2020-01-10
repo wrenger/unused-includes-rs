@@ -61,15 +61,15 @@ fn main() {
 
     let file = file.canonicalize().unwrap();
 
-    let (include_paths, deps, ci_args) = if let Some(comp) = comp {
+    let (include_paths, index, ci_args) = if let Some(comp) = comp {
         println!("Parsing compilaton database...");
         let compilations =
             compilations::parse(comp, &filter).expect("Error parsing compilation database");
 
         let include_paths = compilations.collect_include_paths();
-        println!("include paths {:?}", include_paths);
+        println!("include paths: {:?}", include_paths);
 
-        let deps = if let Some(index) = index {
+        let index = if let Some(index) = index {
             serde_yaml::from_reader::<File, MultiMap<PathBuf, PathBuf>>(
                 File::open(index).expect("Error opening include index"),
             )
@@ -80,12 +80,12 @@ fn main() {
         };
 
         let mut new_ci_args = compilations
-            .get_related_args(&file, &deps)
+            .get_related_args(&file, &index)
             .expect("Missing compiler args in compilation database");
         // add custom args
         new_ci_args.extend(ci_args.into_iter());
 
-        (include_paths, deps, new_ci_args)
+        (include_paths, index, new_ci_args)
     } else {
         let include_paths = util::include_paths(&ci_args.join(" "))
             .map(|e| PathBuf::from(e))
@@ -94,19 +94,19 @@ fn main() {
     };
 
     println!("Analyzing sources:");
-    dependencies::print_dependency_tree(&file, &deps, 0);
+    dependencies::print_dependency_tree(&file, &index, 0);
 
     let clang = Clang::new().expect("Could not load libclang");
     println!("libclang: {}", clang::get_version());
 
-    remove_unused_includes(file, &ci_args, &include_paths, &deps, &clang);
+    remove_unused_includes(file, &ci_args, &include_paths, &index, &clang);
 }
 
 fn remove_unused_includes<'a, P, S>(
     file: P,
     args: &[S],
     include_paths: &[PathBuf],
-    deps: &MultiMap<PathBuf, PathBuf>,
+    index: &MultiMap<PathBuf, PathBuf>,
     clang: &'a Clang,
 ) where
     P: AsRef<Path>,
@@ -115,10 +115,7 @@ fn remove_unused_includes<'a, P, S>(
     if let Ok(includes) = analyze::unused_includes(clang, &file, args) {
         println!("Remove includes:");
         for include in &includes {
-            println!(
-                " - {}: {} -> {:?}",
-                include.line, include.name, include.path
-            );
+            println!("  - {}: {}", include.line, include.name);
         }
         if !includes.is_empty() {
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
@@ -127,7 +124,7 @@ fn remove_unused_includes<'a, P, S>(
             // TODO: sort with clang-format
         }
 
-        if let Some(dependencies) = deps.get_vec(file.as_ref()) {
+        if let Some(dependencies) = index.get_vec(file.as_ref()) {
             for dependency in dependencies {
                 println!("Check dependency {:?}", dependency);
                 let includes = includes
@@ -136,7 +133,7 @@ fn remove_unused_includes<'a, P, S>(
                     .collect::<Vec<_>>();
                 fileio::add_includes(dependency, includes).expect("Could not propagate includes");
 
-                remove_unused_includes(dependency, args, include_paths, deps, clang);
+                remove_unused_includes(dependency, args, include_paths, index, clang);
             }
         }
     }
