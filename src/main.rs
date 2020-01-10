@@ -12,6 +12,7 @@ use structopt::StructOpt;
 mod analyze;
 mod compilations;
 use compilations::CompilationsExt;
+mod clangfmt;
 mod dependencies;
 mod fileio;
 mod util;
@@ -37,6 +38,8 @@ struct ToolArgs {
     comp: Option<PathBuf>,
     #[structopt(long, parse(from_os_str))]
     index: Option<PathBuf>,
+    #[structopt(long, default_value = "clang-format")]
+    clang_format: String,
 }
 
 fn main() {
@@ -57,6 +60,7 @@ fn main() {
         filter,
         comp,
         index,
+        clang_format,
     } = ToolArgs::from_iter(tool_args.iter());
 
     let file = file.canonicalize().unwrap();
@@ -99,7 +103,14 @@ fn main() {
     let clang = Clang::new().expect("Could not load libclang");
     println!("libclang: {}", clang::get_version());
 
-    remove_unused_includes(file, &ci_args, &include_paths, &index, &clang);
+    remove_unused_includes(
+        file,
+        &ci_args,
+        &include_paths,
+        &index,
+        &clang,
+        &clang_format,
+    );
 }
 
 fn remove_unused_includes<'a, P, S>(
@@ -108,6 +119,7 @@ fn remove_unused_includes<'a, P, S>(
     include_paths: &[PathBuf],
     index: &MultiMap<PathBuf, PathBuf>,
     clang: &'a Clang,
+    clang_format: &str,
 ) where
     P: AsRef<Path>,
     S: AsRef<str>,
@@ -121,7 +133,7 @@ fn remove_unused_includes<'a, P, S>(
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
             fileio::remove_includes(&file, &lines).expect("Could not remove includes");
 
-            // TODO: sort with clang-format
+            clangfmt::format(&file, clang_format);
         }
 
         if let Some(dependencies) = index.get_vec(file.as_ref()) {
@@ -133,7 +145,7 @@ fn remove_unused_includes<'a, P, S>(
                     .collect::<Vec<_>>();
                 fileio::add_includes(dependency, includes).expect("Could not propagate includes");
 
-                remove_unused_includes(dependency, args, include_paths, index, clang);
+                remove_unused_includes(dependency, args, include_paths, index, clang, clang_format);
             }
         }
     }
