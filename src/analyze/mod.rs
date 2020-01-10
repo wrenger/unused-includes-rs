@@ -72,22 +72,22 @@ impl Include {
         Include { name, path, line }
     }
 
-    pub fn get_include<P: AsRef<Path>>(&self, file: P, include_paths: &[PathBuf]) -> String {
+    pub fn get_include<P: AsRef<Path>>(&self, file: P, include_paths: &[PathBuf]) -> (bool, String) {
         // Prefer relative includes if possible
         if let Some(file) = file.as_ref().parent() {
             // TODO: Allow from /src/ and /include/
             if let Ok(relpath) = self.path.strip_prefix(file) {
-                return relpath.to_string_lossy().into();
+                return (true, relpath.to_string_lossy().into());
             }
         }
         // Check for include paths
         for include_path in include_paths {
             if let Ok(relpath) = self.path.strip_prefix(include_path) {
-                return relpath.to_string_lossy().into();
+                return (true, relpath.to_string_lossy().into());
             }
         }
         // Fallback for global includes
-        self.name.clone()
+        (false, self.name.clone())
     }
 }
 
@@ -110,15 +110,11 @@ where
             tu.get_entity()
                 .visit_children(|entity, _| find_includes(entity, &mut includes));
 
-            println!("includes {}", includes.len());
-
             tu.get_entity()
                 .visit_children(|entity, _| mark_includes(entity, &mut includes));
 
             if let Some(file) = tu.get_file(&file) {
                 let unused = includes.unused(&file.get_id());
-                println!("unused {:?}", unused);
-
                 let mut result = Vec::with_capacity(unused.len());
 
                 file.visit_includes(|entity, source_range| {

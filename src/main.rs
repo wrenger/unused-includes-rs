@@ -1,7 +1,5 @@
-use std::collections::HashSet;
 use std::env::args;
-use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
@@ -12,11 +10,22 @@ use multimap::MultiMap;
 use structopt::StructOpt;
 
 mod analyze;
-use analyze::Include;
 mod compilations;
 use compilations::CompilationsExt;
 mod dependencies;
+mod fileio;
 mod util;
+
+lazy_static! {
+    static ref RE_INCLUDE: regex::Regex =
+        regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[>\"]").unwrap();
+    static ref RE_LOCAL_INCLUDE: regex::Regex =
+        regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
+    static ref RE_IF: regex::Regex = regex::Regex::new("^[ \\t]*#[ \\t]*if").unwrap();
+    static ref RE_ENDIF: regex::Regex = regex::Regex::new("^[ \\t]*#[ \\t]*endif").unwrap();
+    static ref RE_PRAGMA_ONCE: regex::Regex =
+        regex::Regex::new("^[ \\t]*#[ \\t]*pragma[ \\t]+once").unwrap();
+}
 
 #[derive(StructOpt)]
 struct ToolArgs {
@@ -53,6 +62,7 @@ fn main() {
     let file = file.canonicalize().unwrap();
 
     let (include_paths, deps, ci_args) = if let Some(comp) = comp {
+        println!("Parsing compilaton database...");
         let compilations =
             compilations::parse(comp, &filter).expect("Error parsing compilation database");
 
@@ -65,6 +75,7 @@ fn main() {
             )
             .expect("Error opening include index")
         } else {
+            println!("Creating dependency tree...");
             dependencies::index(&compilations.keys().collect::<Vec<_>>(), &include_paths)
         };
 
@@ -81,6 +92,9 @@ fn main() {
             .collect::<Vec<_>>();
         (include_paths, MultiMap::new(), ci_args)
     };
+
+    println!("Analyzing sources:");
+    dependencies::print_dependency_tree(&file, &deps, 0);
 
     let clang = Clang::new().expect("Could not load libclang");
     println!("libclang: {}", clang::get_version());
@@ -107,48 +121,23 @@ fn remove_unused_includes<'a, P, S>(
             );
         }
         if !includes.is_empty() {
-            remove_includes(&file, &includes).expect("Could not remove includes");
+            let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
+            fileio::remove_includes(&file, &lines).expect("Could not remove includes");
+
+            // TODO: sort with clang-format
         }
 
         if let Some(dependencies) = deps.get_vec(file.as_ref()) {
             for dependency in dependencies {
                 println!("Check dependency {:?}", dependency);
-                for include in &includes {
-                    println!(" -- add {}", include.get_include(dependency, include_paths))
-                }
-                add_includes(dependency, &includes).expect("Could not propagate includes");
+                let includes = includes
+                    .iter()
+                    .map(|i| i.get_include(&dependency, include_paths))
+                    .collect::<Vec<_>>();
+                fileio::add_includes(dependency, includes).expect("Could not propagate includes");
 
                 remove_unused_includes(dependency, args, include_paths, deps, clang);
             }
         }
     }
-}
-
-fn add_includes<P: AsRef<Path>>(file: P, includes: &[Include]) -> io::Result<()> {
-    // TODO: add includes
-    Err(std::io::ErrorKind::Other.into())
-}
-
-fn remove_includes<P: AsRef<Path>>(file: P, includes: &[Include]) -> io::Result<()> {
-    let temppath = file.as_ref().with_extension(".tmp");
-    {
-        let original = BufReader::new(File::open(&file)?);
-        let mut tempfile = BufWriter::new(File::create(&temppath)?);
-
-        // line numbers starting with 1
-        let lines_to_remove = includes.iter().map(|i| i.line - 1).collect::<HashSet<_>>();
-
-        for (i, line) in original.split(b'\n').enumerate() {
-            let line = line?;
-            if !lines_to_remove.contains(&i) {
-                tempfile.write(&line)?;
-                tempfile.write(b"\n")?;
-            }
-        }
-    };
-
-    fs::remove_file(&file)?;
-    fs::rename(&temppath, &file)?;
-
-    Ok(())
 }

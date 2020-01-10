@@ -2,6 +2,20 @@ use std::fs::{self, DirEntry, ReadDir};
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// Returns whether the given path points to a header file
+pub fn is_header_file<P: AsRef<Path>>(path: P) -> bool {
+    let path = path.as_ref();
+    if path.is_file() {
+        if let Some(extension) = path.extension() {
+            extension == "h" || extension == "hpp"
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
 /// Parses the include paths from the given compiler commandline.
 pub fn include_paths<'a>(command: &'a str) -> impl Iterator<Item = &'a str> {
     lazy_static! {

@@ -1,9 +1,8 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use multimap::MultiMap;
 
+use super::fileio;
 use super::util;
 
 /// Creates an index with all sources and their dependencies (sources that include them).
@@ -22,7 +21,7 @@ where
             for path in read_dir {
                 if let Ok(path) = path {
                     let path = path.path();
-                    if is_header_file(&path) {
+                    if util::is_header_file(&path) {
                         add_file(&path, &mut map, directories);
                     }
                 }
@@ -33,12 +32,31 @@ where
     map
 }
 
+pub fn print_dependency_tree<P: AsRef<Path>>(
+    root: P,
+    index: &MultiMap<PathBuf, PathBuf>,
+    indent: usize,
+) {
+    if indent > 0 {
+        for _ in 1..indent {
+            print!("    ");
+        }
+        print!("  - ");
+    }
+    println!("{}", root.as_ref().to_string_lossy());
+    if let Some(children) = index.get_vec(root.as_ref()) {
+        for child in children {
+            print_dependency_tree(child, index, indent + 1);
+        }
+    }
+}
+
 fn add_file<P: AsRef<Path>>(
     file: P,
     map: &mut MultiMap<PathBuf, PathBuf>,
     include_paths: &[PathBuf],
 ) {
-    for include in parse_includes(&file) {
+    for include in fileio::parse_includes(&file) {
         if let Some(include) = util::find_include(&file, &include, include_paths) {
             match (
                 PathBuf::from(include).canonicalize(),
@@ -50,49 +68,5 @@ fn add_file<P: AsRef<Path>>(
         } else {
             println!("Missing include {} {:?}", include, file.as_ref());
         }
-    }
-}
-
-/// Returns whether the given path points to a header file
-fn is_header_file<P: AsRef<Path>>(path: P) -> bool {
-    let path = path.as_ref();
-    if path.is_file() {
-        if let Some(extension) = path.extension() {
-            extension == "h" || extension == "hpp"
-        } else {
-            false
-        }
-    } else {
-        false
-    }
-}
-
-fn parse_includes<P: AsRef<Path>>(path: P) -> Vec<String> {
-    // Only local includes
-    lazy_static! {
-        static ref INCLUDE_RE: regex::Regex =
-            regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
-    }
-
-    // TODO: Ignore includes in #if...#endif
-    // Also handle header guards and #pragma once
-
-    if let Ok(file) = File::open(path) {
-        let reader = BufReader::new(file);
-        let mut includes = vec![];
-
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if INCLUDE_RE.is_match(&line) {
-                    let caps = INCLUDE_RE.captures(&line).unwrap();
-                    includes.push(String::from(&caps[1]))
-                }
-            } else {
-                return vec![];
-            }
-        }
-        includes
-    } else {
-        vec![]
     }
 }
