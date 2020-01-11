@@ -133,7 +133,7 @@ fn remove_unused_includes<'a, P, S>(
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
             fileio::remove_includes(&file, &lines).expect("Could not remove includes");
 
-            clangfmt::format(&file, clang_format);
+            clangfmt::includes(&file, clang_format).expect("Clang-format failed");
         }
 
         if let Some(dependencies) = index.get_vec(file.as_ref()) {
