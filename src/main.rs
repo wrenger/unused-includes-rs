@@ -17,6 +17,7 @@ mod dependencies;
 mod fileio;
 mod util;
 
+// Regexes for several preprocessor directives
 lazy_static! {
     static ref RE_INCLUDE: regex::Regex =
         regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[>\"]").unwrap();
@@ -132,18 +133,23 @@ fn remove_unused_includes<'a, P, S>(
         if !includes.is_empty() {
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
             fileio::remove_includes(&file, &lines).expect("Could not remove includes");
-
+            // Sort includes
             clangfmt::includes(&file, clang_format).expect("Clang-format failed");
         }
 
         if let Some(dependencies) = index.get_vec(file.as_ref()) {
             for dependency in dependencies {
                 println!("Check dependency {:?}", dependency);
-                let includes = includes
-                    .iter()
-                    .map(|i| i.get_include(&dependency, include_paths))
-                    .collect::<Vec<_>>();
-                fileio::add_includes(dependency, includes).expect("Could not propagate includes");
+                // Add removed includes
+                if !includes.is_empty() {
+                    fileio::add_includes(
+                        dependency,
+                        includes
+                            .iter()
+                            .map(|i| i.get_include(&dependency, include_paths)),
+                    )
+                    .expect("Could not propagate includes");
+                }
 
                 remove_unused_includes(dependency, args, include_paths, index, clang, clang_format);
             }

@@ -123,14 +123,21 @@ impl IncludeGraph {
         }
     }
 
+    /// Returns all edges, stating with edges to used nodes.
     fn edges(&self) -> Vec<(FileID, FileID)> {
-        let mut edges = Vec::with_capacity(self.len());
+        let mut unused_edges = Vec::with_capacity(self.len());
+        let mut used_edges = Vec::new();
         for (key, value) in &self.includes {
             for to in &value.includes {
-                edges.push((key.clone(), to.clone()));
+                if value.used {
+                    used_edges.push((key.clone(), to.clone()));
+                } else {
+                    unused_edges.push((key.clone(), to.clone()));
+                }
             }
         }
-        edges
+        used_edges.extend(unused_edges);
+        used_edges
     }
 }
 

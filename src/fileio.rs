@@ -61,46 +61,41 @@ fn parse_includes_file(
         }
     }
     if !found {
-        offset = usize::MAX;
+        offset = 0;
     }
 
     Ok((offset, includes))
 }
 
 /// Adds the given `includes` in front of the old includes of the given file
-pub fn add_includes<P>(filepath: P, includes: Vec<(bool, String)>) -> io::Result<()>
+pub fn add_includes<P, I>(filepath: P, includes: I) -> io::Result<()>
 where
     P: AsRef<Path>,
+    I: IntoIterator<Item = (bool, String)>
 {
     let mut file = OpenOptions::new().read(true).write(true).open(&filepath)?;
 
     let (offset, old_includes) =
         parse_includes_file(&mut file, &RE_INCLUDE, util::is_header_file(&filepath))?;
 
-    if offset < usize::MAX {
-        if !includes.is_empty() {
-            file.seek(SeekFrom::Start(offset as u64))?;
-            let mut buffer = String::new();
-            file.read_to_string(&mut buffer)?;
-            file.seek(SeekFrom::Start(offset as u64))?;
+    file.seek(SeekFrom::Start(offset as u64))?;
+    let mut buffer = String::new();
+    file.read_to_string(&mut buffer)?;
+    file.seek(SeekFrom::Start(offset as u64))?;
 
-            for (local, path) in includes
-                .into_iter()
-                .filter(|(_, i)| !old_includes.contains(i))
-            {
-                if local {
-                    writeln!(file, "#include \"{}\"", path)?;
-                } else {
-                    writeln!(file, "#include <{}>", path)?;
-                }
-            }
-            write!(file, "{}", &buffer)?;
+    for (local, path) in includes
+        .into_iter()
+        .filter(|(_, i)| !old_includes.contains(i))
+    {
+        if local {
+            writeln!(file, "#include \"{}\"", path)?;
+        } else {
+            writeln!(file, "#include <{}>", path)?;
         }
-
-        Ok(())
-    } else {
-        Err(std::io::ErrorKind::Other.into())
     }
+    write!(file, "{}", &buffer)?;
+
+    Ok(())
 }
 
 /// Removes the `includes` at the given lines from the `file`.
