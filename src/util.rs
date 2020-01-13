@@ -18,7 +18,7 @@ pub fn is_header_file<P: AsRef<Path>>(path: P) -> bool {
 
 /// Parses the include paths from the given compiler commandline.
 pub fn include_paths<'a>(command: &'a str) -> impl Iterator<Item = &'a str> {
-    lazy_static! {
+    lazy_static::lazy_static! {
         static ref INCLUDE_RE: regex::Regex =
             regex::Regex::new("(^|\\s)-I ?([\\w\\-/\\.]+)").unwrap();
     }

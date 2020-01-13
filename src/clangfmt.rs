@@ -34,7 +34,7 @@ pub fn includes<P: AsRef<Path>>(file: P, clang_format: &str) -> io::Result<()> {
 }
 
 fn include_ranges<P: AsRef<Path>>(file: P) -> io::Result<Vec<(usize, usize)>> {
-    lazy_static! {
+    lazy_static::lazy_static! {
         static ref RE_PREPROCESSOR: regex::Regex = regex::Regex::new("^[ \\t]*([#/]|$)").unwrap();
     }
 

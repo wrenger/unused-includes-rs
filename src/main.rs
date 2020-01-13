@@ -3,8 +3,6 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
-#[macro_use]
-extern crate lazy_static;
 use clang::Clang;
 use multimap::MultiMap;
 use regex::Regex;
@@ -19,7 +17,7 @@ mod fileio;
 mod util;
 
 // Regexes for several preprocessor directives
-lazy_static! {
+lazy_static::lazy_static! {
     static ref RE_INCLUDE: Regex =
         Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[>\"]").unwrap();
     static ref RE_LOCAL_INCLUDE: Regex =
