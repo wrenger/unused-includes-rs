@@ -87,19 +87,19 @@ impl Include {
     ) -> (bool, String) {
         // Prefer relative includes if possible
         // Allow relative includes from /src/ and /include/
-        for ancestor in file.as_ref().ancestors() {
-            if ancestor.ends_with("src")
-                || ancestor.ends_with("include")
-                || ancestor.ends_with("src/main")
-                || ancestor.ends_with("include/main")
-            {
-                if let Some(file_relpath) = file.as_ref().strip_prefix(ancestor).ok() {
-                    for include_path in include_paths {
-                        let path = [include_path, file_relpath, Path::new(&self.name)]
-                            .iter()
-                            .collect::<PathBuf>();
-                        if path.exists() {
-                            return (true, file_relpath.join(&self.name).to_string_lossy().into());
+        if let Some(filedir) = file.as_ref().parent() {
+            for ancestor in filedir.ancestors() {
+                if ancestor.ends_with("src")
+                    || ancestor.ends_with("include")
+                    || ancestor.ends_with("src/main")
+                    || ancestor.ends_with("include/main")
+                {
+                    if let Some(file_relpath) = filedir.strip_prefix(ancestor).ok() {
+                        for include_path in include_paths {
+                            let path: PathBuf = [include_path, file_relpath].iter().collect();
+                            if let Ok(relpath) = self.path.strip_prefix(path) {
+                                return (true, relpath.to_string_lossy().into());
+                            }
                         }
                     }
                 }
@@ -178,24 +178,34 @@ mod test {
 
     #[test]
     fn test_include_relpath() {
-        let dir = current_dir().unwrap();
-        let include_paths = [dir.join("tests")];
+        let dir = current_dir().unwrap().join("tests");
+        let include_paths = [dir.join("src"), dir.join("include")];
 
-        let include = Include::new("Base.hpp".into(), dir.join("tests/Base.hpp"), 0);
+        let include = Include::new("Base.hpp".into(), dir.join("src/Base.hpp"), 0);
         assert_eq!(
-            include.get_include(dir.join("tests/Main.cpp"), &include_paths),
+            include.get_include(dir.join("src/Main.cpp"), &include_paths),
             (true, "Base.hpp".into())
         );
 
-        let include = Include::new("Classes.hpp".into(), dir.join("tests/refs/Classes.hpp"), 0);
+        let include = Include::new("Classes.hpp".into(), dir.join("src/refs/Classes.hpp"), 0);
         assert_eq!(
-            include.get_include(dir.join("tests/Main.cpp"), &include_paths),
+            include.get_include(dir.join("src/Main.cpp"), &include_paths),
             (true, "refs/Classes.hpp".into())
+        );
+
+        let include = Include::new(
+            "ExternalRef.hpp".into(),
+            dir.join("include/ref/ExternalRef.hpp"),
+            0,
+        );
+        assert_eq!(
+            include.get_include(dir.join("src/ref/Main.cpp"), &include_paths),
+            (true, "ExternalRef.hpp".into())
         );
 
         let include = Include::new("vector".into(), dir.join("/usr/lib/include/vector"), 0);
         assert_eq!(
-            include.get_include(dir.join("tests/Main.cpp"), &include_paths),
+            include.get_include(dir.join("Main.cpp"), &include_paths),
             (false, "vector".into())
         );
     }
