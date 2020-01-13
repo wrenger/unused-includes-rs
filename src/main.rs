@@ -7,6 +7,7 @@ use std::vec::Vec;
 extern crate lazy_static;
 use clang::Clang;
 use multimap::MultiMap;
+use regex::Regex;
 use structopt::StructOpt;
 
 mod analyze;
@@ -19,14 +20,13 @@ mod util;
 
 // Regexes for several preprocessor directives
 lazy_static! {
-    static ref RE_INCLUDE: regex::Regex =
-        regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[>\"]").unwrap();
-    static ref RE_LOCAL_INCLUDE: regex::Regex =
-        regex::Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
-    static ref RE_IF: regex::Regex = regex::Regex::new("^[ \\t]*#[ \\t]*if").unwrap();
-    static ref RE_ENDIF: regex::Regex = regex::Regex::new("^[ \\t]*#[ \\t]*endif").unwrap();
-    static ref RE_PRAGMA_ONCE: regex::Regex =
-        regex::Regex::new("^[ \\t]*#[ \\t]*pragma[ \\t]+once").unwrap();
+    static ref RE_INCLUDE: Regex =
+        Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[>\"]").unwrap();
+    static ref RE_LOCAL_INCLUDE: Regex =
+        Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
+    static ref RE_IF: Regex = Regex::new("^[ \\t]*#[ \\t]*if").unwrap();
+    static ref RE_ENDIF: Regex = Regex::new("^[ \\t]*#[ \\t]*endif").unwrap();
+    static ref RE_PRAGMA_ONCE: Regex = Regex::new("^[ \\t]*#[ \\t]*pragma[ \\t]+once").unwrap();
 }
 
 #[derive(StructOpt)]
