@@ -1,21 +1,22 @@
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
+use clang::source::File;
 use clang::{Clang, Entity, EntityKind, EntityVisitResult, Index};
 
 mod includes;
-use includes::{FileID, IncludeGraph};
+use includes::IncludeGraph;
 
 trait EntityExt {
-    fn get_sourcefile(&self) -> Option<FileID>;
+    fn get_sourcefile(&self) -> Option<File>;
 }
 
 impl<'tu> EntityExt for Entity<'tu> {
-    fn get_sourcefile(&self) -> Option<FileID> {
+    fn get_sourcefile(&self) -> Option<File> {
         if let Some(location) = self.get_location() {
             let location = location.get_expansion_location();
             if let Some(file) = location.file {
-                Some(file.get_id())
+                Some(file)
             } else {
                 None
             }
@@ -29,7 +30,13 @@ fn find_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
     if entity.get_kind() == EntityKind::InclusionDirective {
         if let Some(from) = entity.get_sourcefile() {
             if let Some(to) = entity.get_file() {
-                includes.insert(from, to.get_id());
+                // Ignore corresponding headers in sourcefiles
+                // TODO: allow filter pattern, ignore `// keep`
+                if !entity.is_in_main_file()
+                    || from.get_path().file_stem() != to.get_path().file_stem()
+                {
+                    includes.insert(from.get_id(), to.get_id());
+                }
             }
         }
     }
@@ -50,7 +57,7 @@ fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
             if let Some(reference) = entity.get_reference() {
                 if !reference.is_in_main_file() {
                     if let Some(to) = reference.get_sourcefile() {
-                        includes.mark_used(&to);
+                        includes.mark_used(&to.get_id());
                     }
                 }
             }
@@ -72,18 +79,33 @@ impl Include {
         Include { name, path, line }
     }
 
+    /// Returns the include path relative to the file if possible
     pub fn get_include<P: AsRef<Path>>(
         &self,
         file: P,
         include_paths: &[PathBuf],
     ) -> (bool, String) {
         // Prefer relative includes if possible
-        if let Some(file) = file.as_ref().parent() {
-            // TODO: Allow from /src/ and /include/
-            if let Ok(relpath) = self.path.strip_prefix(file) {
-                return (true, relpath.to_string_lossy().into());
+        // Allow relative includes from /src/ and /include/
+        for ancestor in file.as_ref().ancestors() {
+            if ancestor.ends_with("src")
+                || ancestor.ends_with("include")
+                || ancestor.ends_with("src/main")
+                || ancestor.ends_with("include/main")
+            {
+                if let Some(file_relpath) = file.as_ref().strip_prefix(ancestor).ok() {
+                    for include_path in include_paths {
+                        let path = [include_path, file_relpath, Path::new(&self.name)]
+                            .iter()
+                            .collect::<PathBuf>();
+                        if path.exists() {
+                            return (true, file_relpath.join(&self.name).to_string_lossy().into());
+                        }
+                    }
+                }
             }
         }
+
         // Check for include paths
         for include_path in include_paths {
             if let Ok(relpath) = self.path.strip_prefix(include_path) {
@@ -147,4 +169,34 @@ where
         }
     };
     result
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::env::current_dir;
+
+    #[test]
+    fn test_include_relpath() {
+        let dir = current_dir().unwrap();
+        let include_paths = [dir.join("tests")];
+
+        let include = Include::new("Base.hpp".into(), dir.join("tests/Base.hpp"), 0);
+        assert_eq!(
+            include.get_include(dir.join("tests/Main.cpp"), &include_paths),
+            (true, "Base.hpp".into())
+        );
+
+        let include = Include::new("Classes.hpp".into(), dir.join("tests/refs/Classes.hpp"), 0);
+        assert_eq!(
+            include.get_include(dir.join("tests/Main.cpp"), &include_paths),
+            (true, "refs/Classes.hpp".into())
+        );
+
+        let include = Include::new("vector".into(), dir.join("/usr/lib/include/vector"), 0);
+        assert_eq!(
+            include.get_include(dir.join("tests/Main.cpp"), &include_paths),
+            (false, "vector".into())
+        );
+    }
 }
