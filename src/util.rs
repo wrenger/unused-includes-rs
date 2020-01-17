@@ -4,9 +4,8 @@ use std::path::{Path, PathBuf};
 
 /// Returns whether the given path points to a header file
 pub fn is_header_file<P: AsRef<Path>>(path: P) -> bool {
-    let path = path.as_ref();
-    if path.is_file() {
-        if let Some(extension) = path.extension() {
+    if path.as_ref().is_file() {
+        if let Some(extension) = path.as_ref().extension() {
             extension == "h" || extension == "hpp"
         } else {
             false

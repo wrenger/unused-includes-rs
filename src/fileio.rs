@@ -4,8 +4,20 @@ use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::usize;
 
+use regex::Regex;
+
 use super::util;
-use super::{RE_ENDIF, RE_IF, RE_INCLUDE, RE_LOCAL_INCLUDE, RE_PRAGMA_ONCE};
+
+// Regexes for several preprocessor directives
+lazy_static::lazy_static! {
+    static ref RE_INCLUDE: Regex =
+        Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[>\"]").unwrap();
+    static ref RE_LOCAL_INCLUDE: Regex =
+        Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
+    static ref RE_IF: Regex = Regex::new("^[ \\t]*#[ \\t]*if").unwrap();
+    static ref RE_ENDIF: Regex = Regex::new("^[ \\t]*#[ \\t]*endif").unwrap();
+    static ref RE_PRAGMA_ONCE: Regex = Regex::new("^[ \\t]*#[ \\t]*pragma[ \\t]+once").unwrap();
+}
 
 /// Collect includes ignoring those defined in #if..#endif blocks.
 pub fn parse_includes<P: AsRef<Path>>(path: P) -> HashSet<String> {
@@ -71,7 +83,7 @@ fn parse_includes_file(
 pub fn add_includes<P, I>(filepath: P, includes: I) -> io::Result<()>
 where
     P: AsRef<Path>,
-    I: IntoIterator<Item = (bool, String)>
+    I: IntoIterator<Item = (bool, String)>,
 {
     let mut file = OpenOptions::new().read(true).write(true).open(&filepath)?;
 

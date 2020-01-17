@@ -1,23 +1,27 @@
+use std::cell::RefCell;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
 
-pub fn includes<P: AsRef<Path>>(file: P, clang_format: &str) -> io::Result<()> {
+pub const EXEC: RefCell<String> = RefCell::new(String::new());
+
+pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
     let fmt_ranges = include_ranges(&file)?;
 
-    println!("Include ranges {:?}", fmt_ranges);
-
-    let output = Command::new(clang_format)
-        .arg(file.as_ref())
-        .arg("-i")
-        .arg("-sort-includes")
-        .args(
-            fmt_ranges
-                .iter()
-                .map(|(s, e)| format!("-lines={}:{}", s + 1, e + 1)),
-        )
-        .output()?;
+    let output = {
+        Command::new(EXEC.borrow().as_ref() as &OsStr)
+            .arg(file.as_ref())
+            .arg("-i")
+            .arg("-sort-includes")
+            .args(
+                fmt_ranges
+                    .iter()
+                    .map(|(s, e)| format!("-lines={}:{}", s + 1, e + 1)),
+            )
+            .output()?
+    };
 
     if !output.status.success() {
         println!(

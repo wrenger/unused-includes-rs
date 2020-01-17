@@ -5,7 +5,6 @@ use std::vec::Vec;
 
 use clang::Clang;
 use multimap::MultiMap;
-use regex::Regex;
 use structopt::StructOpt;
 
 mod analyze;
@@ -15,17 +14,6 @@ mod clangfmt;
 mod dependencies;
 mod fileio;
 mod util;
-
-// Regexes for several preprocessor directives
-lazy_static::lazy_static! {
-    static ref RE_INCLUDE: Regex =
-        Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*[<\"]([\\./\\w-]+)[>\"]").unwrap();
-    static ref RE_LOCAL_INCLUDE: Regex =
-        Regex::new("^[ \\t]*#[ \\t]*include[ \\t]*\"([\\./\\w-]+)\"").unwrap();
-    static ref RE_IF: Regex = Regex::new("^[ \\t]*#[ \\t]*if").unwrap();
-    static ref RE_ENDIF: Regex = Regex::new("^[ \\t]*#[ \\t]*endif").unwrap();
-    static ref RE_PRAGMA_ONCE: Regex = Regex::new("^[ \\t]*#[ \\t]*pragma[ \\t]+once").unwrap();
-}
 
 #[derive(StructOpt)]
 struct ToolArgs {
@@ -39,6 +27,8 @@ struct ToolArgs {
     index: Option<PathBuf>,
     #[structopt(long, default_value = "clang-format")]
     clang_format: String,
+    #[structopt(long, default_value = "(/private/|[_/]impl[_\\./])")]
+    ignore_includes: regex::Regex,
 }
 
 fn main() {
@@ -60,7 +50,10 @@ fn main() {
         comp,
         index,
         clang_format,
+        ignore_includes,
     } = ToolArgs::from_iter(tool_args.iter());
+
+    clangfmt::EXEC.replace(clang_format);
 
     let file = file.canonicalize().unwrap();
 
@@ -73,10 +66,8 @@ fn main() {
         println!("include paths: {:?}", include_paths);
 
         let index = if let Some(index) = index {
-            serde_yaml::from_reader::<File, MultiMap<PathBuf, PathBuf>>(
-                File::open(index).expect("Error opening include index"),
-            )
-            .expect("Error opening include index")
+            serde_yaml::from_reader(File::open(index).expect("Error opening include index"))
+                .expect("Error opening include index")
         } else {
             println!("Creating dependency tree...");
             dependencies::index(&compilations.keys().collect::<Vec<_>>(), &include_paths)
@@ -86,7 +77,7 @@ fn main() {
             .get_related_args(&file, &index)
             .expect("Missing compiler args in compilation database");
         // add custom args
-        new_ci_args.extend(ci_args.into_iter());
+        new_ci_args.extend(ci_args);
 
         (include_paths, index, new_ci_args)
     } else {
@@ -105,34 +96,38 @@ fn main() {
     remove_unused_includes(
         file,
         &ci_args,
+        &ignore_includes,
         &include_paths,
         &index,
         &clang,
-        &clang_format,
     );
 }
 
 fn remove_unused_includes<'a, P, S>(
     file: P,
     args: &[S],
+    ignore_includes: &regex::Regex,
     include_paths: &[PathBuf],
     index: &MultiMap<PathBuf, PathBuf>,
     clang: &'a Clang,
-    clang_format: &str,
 ) where
     P: AsRef<Path>,
     S: AsRef<str>,
 {
-    if let Ok(includes) = analyze::unused_includes(clang, &file, args) {
-        println!("Remove includes:");
-        for include in &includes {
-            println!("  - {}: {}", include.line, include.name);
-        }
+    if let Ok(includes) = analyze::unused_includes(clang, &file, args, ignore_includes) {
         if !includes.is_empty() {
+            for include in &includes {
+                println!(
+                    "{}: remove {}",
+                    file.as_ref().to_string_lossy(),
+                    include.name
+                );
+            }
+
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
             fileio::remove_includes(&file, &lines).expect("Could not remove includes");
             // Sort includes
-            clangfmt::includes(&file, clang_format).expect("Clang-format failed");
+            clangfmt::includes(&file).expect("Clang-format failed");
         }
 
         if let Some(dependencies) = index.get_vec(file.as_ref()) {
@@ -149,7 +144,14 @@ fn remove_unused_includes<'a, P, S>(
                     .expect("Could not propagate includes");
                 }
 
-                remove_unused_includes(dependency, args, include_paths, index, clang, clang_format);
+                remove_unused_includes(
+                    dependency,
+                    args,
+                    ignore_includes,
+                    include_paths,
+                    index,
+                    clang,
+                );
             }
         }
     }

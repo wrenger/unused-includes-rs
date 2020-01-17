@@ -1,14 +1,17 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
-use clang::source::File;
+use clang::source::{File, SourceRange};
 use clang::{Clang, Entity, EntityKind, EntityVisitResult, Index};
 
 mod includes;
-use includes::IncludeGraph;
+use includes::{FileID, IncludeGraph};
 
 trait EntityExt {
     fn get_sourcefile(&self) -> Option<File>;
+
+    fn get_remaining_line(&self) -> Option<String>;
 }
 
 impl<'tu> EntityExt for Entity<'tu> {
@@ -24,17 +27,65 @@ impl<'tu> EntityExt for Entity<'tu> {
             None
         }
     }
+
+    fn get_remaining_line(&self) -> Option<String> {
+        if let Some(range) = self.get_range() {
+            let end = range.get_end().get_file_location();
+            let offset = end.offset as usize;
+            if let Some(file) = end.file {
+                if let Some(content) = file.get_contents() {
+                    if let Some(line_end) = content[offset as usize..].find('\n') {
+                        return Some(content[offset as usize..offset + line_end].into());
+                    } else {
+                        return Some(content[offset as usize..].into());
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
-fn find_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResult {
+fn include_should_be_ignored(
+    entity: &Entity,
+    ignore_includes: &regex::Regex,
+    from: &File,
+    to: &File,
+) -> bool {
+    lazy_static::lazy_static! {
+        static ref RE_KEEP: regex::Regex = regex::Regex::new("^[ \\t]*//[ \\t]*keep").unwrap();
+    }
+
+    if entity.is_in_main_file() {
+        // Ignore explicitly marked includes `// keep`
+        if let Some(line_end) = entity.get_remaining_line() {
+            if RE_KEEP.is_match(&line_end)
+                || ignore_includes.is_match(&to.get_path().to_string_lossy())
+            {
+                println!(
+                    "{}: ignore {}",
+                    from.get_path().to_string_lossy(),
+                    entity.get_name().unwrap()
+                );
+                return true;
+            }
+        }
+        // Ignore corresponding headers in sourcefiles
+        return from.get_path().file_stem() == to.get_path().file_stem();
+    } else {
+        false
+    }
+}
+
+fn find_includes(
+    entity: Entity,
+    ignore_includes: &regex::Regex,
+    includes: &mut IncludeGraph,
+) -> EntityVisitResult {
     if entity.get_kind() == EntityKind::InclusionDirective {
         if let Some(from) = entity.get_sourcefile() {
             if let Some(to) = entity.get_file() {
-                // Ignore corresponding headers in sourcefiles
-                // TODO: allow filter pattern, ignore `// keep`
-                if !entity.is_in_main_file()
-                    || from.get_path().file_stem() != to.get_path().file_stem()
-                {
+                if !include_should_be_ignored(&entity, ignore_includes, &from, &to) {
                     includes.insert(from.get_id(), to.get_id());
                 }
             }
@@ -62,7 +113,7 @@ fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
                 }
             }
         }
-        _ => (),
+        _ => {}
     }
 
     EntityVisitResult::Recurse
@@ -94,7 +145,7 @@ impl Include {
                     || ancestor.ends_with("src/main")
                     || ancestor.ends_with("include/main")
                 {
-                    if let Some(file_relpath) = filedir.strip_prefix(ancestor).ok() {
+                    if let Ok(file_relpath) = filedir.strip_prefix(ancestor) {
                         for include_path in include_paths {
                             let path: PathBuf = [include_path, file_relpath].iter().collect();
                             if let Ok(relpath) = self.path.strip_prefix(path) {
@@ -117,7 +168,31 @@ impl Include {
     }
 }
 
-pub fn unused_includes<'a, P, S>(clang: &'a Clang, file: P, args: &[S]) -> Result<Vec<Include>, ()>
+fn collect_unused_includes(
+    entity: Entity,
+    source_range: SourceRange,
+    unused: &HashSet<&FileID>,
+    result: &mut Vec<Include>,
+) {
+    if let Some(file) = entity.get_file() {
+        let path = file.get_path();
+        if unused.contains(&&file.get_id()) {
+            let start = source_range.get_start().get_file_location();
+            result.push(Include::new(
+                entity.get_name().unwrap(),
+                path,
+                start.line as usize,
+            ));
+        }
+    }
+}
+
+pub fn unused_includes<'a, P, S>(
+    clang: &'a Clang,
+    file: P,
+    args: &[S],
+    ignore_includes: &regex::Regex,
+) -> Result<Vec<Include>, ()>
 where
     P: AsRef<Path>,
     S: AsRef<str>,
@@ -134,7 +209,7 @@ where
             let mut includes = IncludeGraph::new();
 
             tu.get_entity()
-                .visit_children(|entity, _| find_includes(entity, &mut includes));
+                .visit_children(|entity, _| find_includes(entity, ignore_includes, &mut includes));
 
             tu.get_entity()
                 .visit_children(|entity, _| mark_includes(entity, &mut includes));
@@ -144,17 +219,7 @@ where
                 let mut result = Vec::with_capacity(unused.len());
 
                 file.visit_includes(|entity, source_range| {
-                    if let Some(file) = entity.get_file() {
-                        let path = file.get_path();
-                        if unused.contains(&&file.get_id()) {
-                            let start = source_range.get_start().get_file_location();
-                            result.push(Include::new(
-                                entity.get_name().unwrap(),
-                                path,
-                                start.line as usize,
-                            ));
-                        }
-                    }
+                    collect_unused_includes(entity, source_range, &unused, &mut result);
                     true
                 });
 

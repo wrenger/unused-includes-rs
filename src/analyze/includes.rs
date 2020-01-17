@@ -66,7 +66,7 @@ impl IncludeGraph {
         }
     }
 
-    pub fn unused(&mut self, main: &FileID) -> HashSet<FileID> {
+    pub fn unused(&mut self, main: &FileID) -> HashSet<&FileID> {
         self.shortest_paths(main);
 
         let mut result = HashSet::new();
@@ -170,8 +170,9 @@ mod test {
             println!("- {:?}: {:?}", key, val);
         }
 
+        let unused = (1, 0, 0);
         assert_eq!(
-            &HashSet::from_iter(iter::once((1, 0, 0))),
+            &HashSet::from_iter(iter::once(&unused)),
             &graph.unused(&(0, 0, 0))
         );
     }
