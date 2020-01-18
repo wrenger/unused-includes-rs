@@ -53,8 +53,6 @@ fn main() {
         ignore_includes,
     } = ToolArgs::from_iter(tool_args.iter());
 
-    clangfmt::EXEC.replace(clang_format);
-
     let file = file.canonicalize().unwrap();
 
     let (include_paths, index, ci_args) = if let Some(comp) = comp {
@@ -94,22 +92,24 @@ fn main() {
     println!("libclang: {}", clang::get_version());
 
     remove_unused_includes(
+        &clang,
         file,
         &ci_args,
         &ignore_includes,
         &include_paths,
         &index,
-        &clang,
+        &clang_format,
     );
 }
 
 fn remove_unused_includes<'a, P, S>(
+    clang: &'a Clang,
     file: P,
     args: &[S],
     ignore_includes: &regex::Regex,
     include_paths: &[PathBuf],
     index: &MultiMap<PathBuf, PathBuf>,
-    clang: &'a Clang,
+    clang_format: &str,
 ) where
     P: AsRef<Path>,
     S: AsRef<str>,
@@ -127,7 +127,7 @@ fn remove_unused_includes<'a, P, S>(
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
             fileio::remove_includes(&file, &lines).expect("Could not remove includes");
             // Sort includes
-            clangfmt::includes(&file).expect("Clang-format failed");
+            clangfmt::includes(&file, clang_format).expect("Clang-format failed");
         }
 
         if let Some(dependencies) = index.get_vec(file.as_ref()) {
@@ -145,12 +145,13 @@ fn remove_unused_includes<'a, P, S>(
                 }
 
                 remove_unused_includes(
+                    clang,
                     dependency,
                     args,
                     ignore_includes,
                     include_paths,
                     index,
-                    clang,
+                    clang_format,
                 );
             }
         }

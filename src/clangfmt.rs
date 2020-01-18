@@ -1,17 +1,13 @@
-use std::cell::RefCell;
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
 
-pub const EXEC: RefCell<String> = RefCell::new(String::new());
-
-pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
+pub fn includes<P: AsRef<Path>>(file: P, clang_format: &str) -> io::Result<()> {
     let fmt_ranges = include_ranges(&file)?;
 
     let output = {
-        Command::new(EXEC.borrow().as_ref() as &OsStr)
+        Command::new(clang_format)
             .arg(file.as_ref())
             .arg("-i")
             .arg("-sort-includes")
@@ -26,7 +22,7 @@ pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
     if !output.status.success() {
         println!(
             "Clang format failed with {}",
-            output.status.code().unwrap_or_default()
+            output.status.code().unwrap_or_default(),
         );
         io::stdout().write_all(&output.stdout)?;
         io::stderr().write_all(&output.stderr)?;
