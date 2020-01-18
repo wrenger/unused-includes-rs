@@ -100,6 +100,8 @@ fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
         return EntityVisitResult::Continue;
     }
 
+    // TODO: Function calls in template instantiations
+
     match entity.get_kind() {
         EntityKind::DeclRefExpr
         | EntityKind::TypeRef
@@ -119,6 +121,7 @@ fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
     EntityVisitResult::Recurse
 }
 
+#[derive(Debug)]
 pub struct Include {
     pub name: String,
     pub path: PathBuf,
@@ -240,6 +243,7 @@ where
 mod test {
     use super::*;
     use std::env::current_dir;
+    use std::fs;
 
     #[test]
     fn test_include_relpath() {
@@ -273,5 +277,24 @@ mod test {
             include.get_include(dir.join("Main.cpp"), &include_paths),
             (false, "vector".into())
         );
+    }
+
+    #[test]
+    fn test_unused_includes() {
+        let dir = current_dir().unwrap().join("tests/src/refs");
+        let clang = clang::Clang::new().expect("Clang init");
+        let ignore_includes = regex::Regex::new("(/private/|[_/]impl[_\\./])").unwrap();
+        let args = [""; 0];
+
+        for file in fs::read_dir(dir).unwrap() {
+            let file = file.unwrap();
+            if let Some(ext) = file.path().extension() {
+                if ext == "cpp" {
+                    let unused = unused_includes(&clang, file.path(), &args, &ignore_includes)
+                        .expect("Include Err");
+                    assert!(unused.is_empty(), "{:?}", &unused);
+                }
+            }
+        }
     }
 }
