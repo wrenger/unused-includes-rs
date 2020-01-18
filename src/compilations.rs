@@ -14,37 +14,30 @@ struct CompilationEntry {
     command: String,
 }
 
-pub type Compilations = HashMap<PathBuf, String>;
-
-pub fn parse<P: AsRef<Path>>(file: P, filter: &glob::Pattern) -> Result<Compilations, String> {
-    let file = File::open(file).map_err(|e| format!("{}", e))?;
-
-    let commands: Vec<CompilationEntry> =
-        serde_yaml::from_reader(file).map_err(|e| format!("{}", e))?;
-
-    Ok(HashMap::from_iter(
-        commands
-            .into_iter()
-            .filter(|e| filter.matches_path(&e.file))
-            .map(|e| (e.file, e.command)),
-    ))
+pub struct Compilations {
+    map: HashMap<PathBuf, String>,
 }
 
-pub trait CompilationsExt {
-    fn collect_include_paths(&self) -> Vec<PathBuf>;
+impl Compilations {
+    pub fn parse<P: AsRef<Path>>(file: P, filter: &glob::Pattern) -> Result<Compilations, String> {
+        let file = File::open(file).map_err(|e| format!("{}", e))?;
+        let commands: Vec<CompilationEntry> =
+            serde_yaml::from_reader(file).map_err(|e| format!("{}", e))?;
 
-    fn get_related_args<P: AsRef<Path>>(
-        &self,
-        file: P,
-        include_paths: &MultiMap<PathBuf, PathBuf>,
-    ) -> Option<Vec<String>>;
-}
+        Ok(Compilations {
+            map: HashMap::from_iter(
+                commands
+                    .into_iter()
+                    .filter(|e| filter.matches_path(&e.file))
+                    .map(|e| (e.file, e.command)),
+            ),
+        })
+    }
 
-impl CompilationsExt for Compilations {
-    fn collect_include_paths(&self) -> Vec<PathBuf> {
+    pub fn collect_include_paths(&self) -> Vec<PathBuf> {
         let mut paths: HashSet<PathBuf> = HashSet::new();
 
-        for command in self.values() {
+        for command in self.map.values() {
             for path in util::include_paths(command) {
                 if !paths.contains(Path::new(path)) {
                     paths.insert(PathBuf::from(path));
@@ -55,18 +48,18 @@ impl CompilationsExt for Compilations {
         paths.into_iter().collect()
     }
 
-    fn get_related_args<P: AsRef<Path>>(
+    pub fn get_related_args<P: AsRef<Path>>(
         &self,
         file: P,
         include_paths: &MultiMap<PathBuf, PathBuf>,
     ) -> Option<Vec<String>> {
-        if let Some(command) = self.get(file.as_ref()) {
+        if let Some(command) = self.map.get(file.as_ref()) {
             parse_args(command)
         } else {
             let dependencies = include_paths.get(file.as_ref());
             // Check direct dependencies first
             for dependency in dependencies {
-                if let Some(command) = self.get(dependency) {
+                if let Some(command) = self.map.get(dependency) {
                     return parse_args(command);
                 }
             }
@@ -79,6 +72,10 @@ impl CompilationsExt for Compilations {
 
             None
         }
+    }
+
+    pub fn sources(&self) -> Vec<&PathBuf> {
+        self.map.keys().collect()
     }
 }
 

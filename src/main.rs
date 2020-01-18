@@ -9,7 +9,7 @@ use structopt::StructOpt;
 
 mod analyze;
 mod compilations;
-use compilations::CompilationsExt;
+use compilations::Compilations;
 mod clangfmt;
 mod dependencies;
 mod fileio;
@@ -60,7 +60,7 @@ fn main() {
     let (include_paths, index, ci_args) = if let Some(comp) = comp {
         println!("Parsing compilaton database...");
         let compilations =
-            compilations::parse(comp, &filter).expect("Error parsing compilation database");
+            Compilations::parse(comp, &filter).expect("Error parsing compilation database");
 
         let include_paths = compilations.collect_include_paths();
         println!("include paths: {:?}", include_paths);
@@ -70,7 +70,7 @@ fn main() {
                 .expect("Error opening include index")
         } else {
             println!("Creating dependency tree...");
-            dependencies::index(&compilations.keys().collect::<Vec<_>>(), &include_paths)
+            dependencies::index(&compilations.sources(), &include_paths)
         };
 
         let mut new_ci_args = compilations
