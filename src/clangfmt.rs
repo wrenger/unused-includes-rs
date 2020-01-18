@@ -6,28 +6,31 @@ use std::process::Command;
 pub fn includes<P: AsRef<Path>>(file: P, clang_format: &str) -> io::Result<()> {
     let fmt_ranges = include_ranges(&file)?;
 
-    let output = {
-        Command::new(clang_format)
-            .arg(file.as_ref())
-            .arg("-i")
-            .arg("-sort-includes")
-            .args(
-                fmt_ranges
-                    .iter()
-                    .map(|(s, e)| format!("-lines={}:{}", s + 1, e + 1)),
-            )
-            .output()?
-    };
-
-    if !output.status.success() {
-        println!(
-            "Clang format failed with {}",
-            output.status.code().unwrap_or_default(),
-        );
-        io::stdout().write_all(&output.stdout)?;
-        io::stderr().write_all(&output.stderr)?;
-    } else {
-        println!("Includes formatted");
+    match Command::new(clang_format)
+        .arg(file.as_ref())
+        .arg("-i")
+        .arg("-sort-includes")
+        .args(
+            fmt_ranges
+                .iter()
+                .map(|(s, e)| format!("-lines={}:{}", s + 1, e + 1)),
+        )
+        .output()
+    {
+        Ok(output) => {
+            if !output.status.success() {
+                eprintln!(
+                    "{} failed with {}",
+                    clang_format,
+                    output.status.code().unwrap_or_default(),
+                );
+                io::stdout().write_all(&output.stdout)?;
+                io::stderr().write_all(&output.stderr)?;
+            }
+        }
+        Err(err) => {
+            eprintln!("{} failed: {}", clang_format, err);
+        }
     }
 
     Ok(())
