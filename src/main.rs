@@ -19,8 +19,8 @@ mod util;
 struct ToolArgs {
     #[structopt(parse(from_os_str))]
     file: PathBuf,
-    #[structopt(short, long, default_value = "**/*")]
-    filter: glob::Pattern,
+    #[structopt(short, long, default_value = ".")]
+    filter: regex::Regex,
     #[structopt(short, long = "compilations", parse(from_os_str))]
     comp: Option<PathBuf>,
     #[structopt(long, parse(from_os_str))]
@@ -53,6 +53,10 @@ fn main() {
         ignore_includes,
     } = ToolArgs::from_iter(tool_args.iter());
 
+    if let Ok(mut val) = clangfmt::EXEC.write() {
+        *val = clang_format;
+    }
+
     let file = file.canonicalize().unwrap();
 
     let (include_paths, index, ci_args) = if let Some(comp) = comp {
@@ -61,15 +65,21 @@ fn main() {
             Compilations::parse(comp, &filter).expect("Error parsing compilation database");
 
         let include_paths = compilations.collect_include_paths();
-        println!("include paths: {:?}", include_paths);
+        println!("Include paths: {:?}", include_paths);
 
         let index = if let Some(index) = index {
-            serde_yaml::from_reader(File::open(index).expect("Error opening include index"))
-                .expect("Error opening include index")
+            let file = File::open(index).expect("Error opening include index");
+            serde_yaml::from_reader(file).expect("Error opening include index")
         } else {
             println!("Creating dependency tree...");
-            dependencies::index(&compilations.sources(), &include_paths)
+            let index = dependencies::index(&compilations.sources(), &include_paths);
+            let file = File::create("dependencies.json").expect("Could not backup index");
+            serde_yaml::to_writer(file, &index).expect("Could not backup index");
+            index
         };
+
+        println!("Analyzing sources:");
+        dependencies::print_dependency_tree(&file, &index, 0);
 
         let mut new_ci_args = compilations
             .get_related_args(&file, &index)
@@ -79,14 +89,12 @@ fn main() {
 
         (include_paths, index, new_ci_args)
     } else {
+        println!("No compilation database provided. Analyzing only the given source.");
         let include_paths = util::include_paths(&ci_args.join(" "))
             .map(|e| PathBuf::from(e))
             .collect::<Vec<_>>();
         (include_paths, MultiMap::new(), ci_args)
     };
-
-    println!("Analyzing sources:");
-    dependencies::print_dependency_tree(&file, &index, 0);
 
     let clang = Clang::new().expect("Could not load libclang");
     println!("libclang: {}", clang::get_version());
@@ -98,7 +106,6 @@ fn main() {
         &ignore_includes,
         &include_paths,
         &index,
-        &clang_format,
     );
 }
 
@@ -109,7 +116,6 @@ fn remove_unused_includes<'a, P, S>(
     ignore_includes: &regex::Regex,
     include_paths: &[PathBuf],
     index: &MultiMap<PathBuf, PathBuf>,
-    clang_format: &str,
 ) where
     P: AsRef<Path>,
     S: AsRef<str>,
@@ -127,7 +133,7 @@ fn remove_unused_includes<'a, P, S>(
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
             fileio::remove_includes(&file, &lines).expect("Could not remove includes");
             // Sort includes
-            clangfmt::includes(&file, clang_format).expect("Clang-format failed");
+            clangfmt::includes(&file).expect("Clang-format failed");
         }
 
         if let Some(dependencies) = index.get_vec(file.as_ref()) {
@@ -151,7 +157,6 @@ fn remove_unused_includes<'a, P, S>(
                     ignore_includes,
                     include_paths,
                     index,
-                    clang_format,
                 );
             }
         }

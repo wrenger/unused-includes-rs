@@ -19,7 +19,7 @@ pub struct Compilations {
 }
 
 impl Compilations {
-    pub fn parse<P: AsRef<Path>>(file: P, filter: &glob::Pattern) -> Result<Compilations, String> {
+    pub fn parse<P: AsRef<Path>>(file: P, filter: &regex::Regex) -> Result<Compilations, String> {
         let file = File::open(file).map_err(|e| format!("{}", e))?;
         let commands: Vec<CompilationEntry> =
             serde_yaml::from_reader(file).map_err(|e| format!("{}", e))?;
@@ -28,7 +28,7 @@ impl Compilations {
             map: HashMap::from_iter(
                 commands
                     .into_iter()
-                    .filter(|e| filter.matches_path(&e.file))
+                    .filter(|e| filter.is_match(&e.file.to_str().expect("Malformed db source")))
                     .map(|e| (e.file, e.command)),
             ),
         })

@@ -2,11 +2,16 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Arc, RwLock};
 
-pub fn includes<P: AsRef<Path>>(file: P, clang_format: &str) -> io::Result<()> {
+lazy_static::lazy_static! {
+    pub static ref EXEC: Arc<RwLock<String>> = Arc::new(RwLock::new(String::new()));
+}
+
+pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
     let fmt_ranges = include_ranges(&file)?;
 
-    match Command::new(clang_format)
+    match Command::new(&*EXEC.read().unwrap())
         .arg(file.as_ref())
         .arg("-i")
         .arg("-sort-includes")
@@ -21,7 +26,7 @@ pub fn includes<P: AsRef<Path>>(file: P, clang_format: &str) -> io::Result<()> {
             if !output.status.success() {
                 eprintln!(
                     "{} failed with {}",
-                    clang_format,
+                    *EXEC.read().unwrap(),
                     output.status.code().unwrap_or_default(),
                 );
                 io::stdout().write_all(&output.stdout)?;
@@ -29,7 +34,7 @@ pub fn includes<P: AsRef<Path>>(file: P, clang_format: &str) -> io::Result<()> {
             }
         }
         Err(err) => {
-            eprintln!("{} failed: {}", clang_format, err);
+            eprintln!("{} failed: {}", *EXEC.read().unwrap(), err);
         }
     }
 
