@@ -1,15 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io;
 use std::iter::{self, FromIterator};
-use std::path::Path;
 use std::usize;
-
-use serde::Serialize;
 
 pub type FileID = (u64, u64, u64);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 struct IncludeEntry {
     includes: HashSet<FileID>,
     used: bool,
@@ -143,13 +138,6 @@ impl IncludeGraph {
         }
         used_edges.extend(unused_edges);
         used_edges
-    }
-
-    pub fn serialize<P: AsRef<Path>>(&self, file: P) -> io::Result<()> {
-        let file = File::create(file)?;
-        serde_yaml::to_writer(file, &self.includes)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        Ok(())
     }
 }
 

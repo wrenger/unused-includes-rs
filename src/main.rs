@@ -3,7 +3,6 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
-use clang::Clang;
 use multimap::MultiMap;
 use structopt::StructOpt;
 
@@ -32,6 +31,8 @@ struct ToolArgs {
 }
 
 fn main() {
+    println!("libclang: {}", clang::get_version());
+
     // Split command line args at '--'
     let (tool_args, ci_args) = {
         let mut args = args().collect::<Vec<_>>();
@@ -68,17 +69,17 @@ fn main() {
         println!("Include paths: {:?}", include_paths);
 
         let index = if let Some(index) = index {
+            println!("Loading dependency tree...");
             let file = File::open(index).expect("Error opening include index");
             serde_yaml::from_reader(file).expect("Error opening include index")
         } else {
             println!("Creating dependency tree...");
-            let index = dependencies::index(&compilations.sources(), &include_paths);
+            let index = dependencies::index(&compilations.sources(), &include_paths, &filter);
             let file = File::create("dependencies.json").expect("Could not backup index");
             serde_yaml::to_writer(file, &index).expect("Could not backup index");
             index
         };
 
-        println!("Analyzing sources:");
         dependencies::print_dependency_tree(&file, &index, 0);
 
         let mut new_ci_args = compilations
@@ -96,21 +97,10 @@ fn main() {
         (include_paths, MultiMap::new(), ci_args)
     };
 
-    let clang = Clang::new().expect("Could not load libclang");
-    println!("libclang: {}", clang::get_version());
-
-    remove_unused_includes(
-        &clang,
-        file,
-        &ci_args,
-        &ignore_includes,
-        &include_paths,
-        &index,
-    );
+    remove_unused_includes(file, &ci_args, &ignore_includes, &include_paths, &index);
 }
 
 fn remove_unused_includes<'a, P, S>(
-    clang: &'a Clang,
     file: P,
     args: &[S],
     ignore_includes: &regex::Regex,
@@ -120,7 +110,7 @@ fn remove_unused_includes<'a, P, S>(
     P: AsRef<Path>,
     S: AsRef<str>,
 {
-    if let Ok(includes) = analyze::unused_includes(clang, &file, args, ignore_includes) {
+    if let Ok(includes) = analyze::unused_includes(&file, args, ignore_includes) {
         if !includes.is_empty() {
             for include in &includes {
                 println!(
@@ -150,14 +140,7 @@ fn remove_unused_includes<'a, P, S>(
                     .expect("Could not propagate includes");
                 }
 
-                remove_unused_includes(
-                    clang,
-                    dependency,
-                    args,
-                    ignore_includes,
-                    include_paths,
-                    index,
-                );
+                remove_unused_includes(dependency, args, ignore_includes, include_paths, index);
             }
         }
     }

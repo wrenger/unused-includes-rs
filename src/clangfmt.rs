@@ -43,13 +43,12 @@ pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
 
 fn include_ranges<P: AsRef<Path>>(file: P) -> io::Result<Vec<(usize, usize)>> {
     let file = File::open(file)?;
-    let reader = BufReader::new(file);
 
     let mut fmt_ranges = Vec::new();
     let mut start = 0;
     let mut has_preprocessor_stmt = false;
 
-    for (i, line) in reader.lines().enumerate() {
+    for (i, line) in BufReader::new(file).lines().enumerate() {
         let line = line?;
         let trimmed_line = line.trim_start();
         if trimmed_line.starts_with('#') {

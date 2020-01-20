@@ -6,14 +6,20 @@ use super::fileio;
 use super::util;
 
 /// Creates an index with all sources and their dependencies (sources that include them).
-pub fn index<P>(files: &[P], directories: &[PathBuf]) -> MultiMap<PathBuf, PathBuf>
+pub fn index<P>(
+    files: &[P],
+    directories: &[PathBuf],
+    filter: &regex::Regex,
+) -> MultiMap<PathBuf, PathBuf>
 where
     P: AsRef<Path>,
 {
     let mut map = MultiMap::new();
 
     for file in files {
-        add_file(file.as_ref(), &mut map, directories);
+        if filter.is_match(file.as_ref().to_str().unwrap()) {
+            add_file(file.as_ref(), &mut map, directories);
+        }
     }
 
     for dir in directories {
@@ -21,7 +27,7 @@ where
             for path in read_dir {
                 if let Ok(path) = path {
                     let path = path.path();
-                    if util::is_header_file(&path) {
+                    if filter.is_match(path.to_str().unwrap()) && util::is_header_file(&path) {
                         add_file(&path, &mut map, directories);
                     }
                 }
@@ -58,12 +64,10 @@ fn add_file<P: AsRef<Path>>(
 ) {
     for include in fileio::parse_includes(&file) {
         if let Some(include) = util::find_include(&file, &include, include_paths) {
-            match (
-                PathBuf::from(include).canonicalize(),
-                PathBuf::from(file.as_ref()).canonicalize(),
-            ) {
-                (Ok(include), Ok(file)) => map.insert(include, file),
-                _ => {}
+            if let Ok(include) = include.canonicalize() {
+                if let Ok(file) = file.as_ref().canonicalize() {
+                    map.insert(include, file);
+                }
             }
         } else {
             println!("Missing include {} {:?}", include, file.as_ref());

@@ -3,17 +3,20 @@ use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
 use clang::source::{File, SourceRange};
-use clang::{Clang, Entity, EntityKind, EntityVisitResult, Index};
+use clang::{Entity, EntityKind, EntityVisitResult, Index};
 
 mod includes;
 use includes::{FileID, IncludeGraph};
+
+// Connect to clang library
+lazy_static::lazy_static! {
+    static ref CLANG: clang::Clang = clang::Clang::new().expect("libclang loading failed");
+}
 
 trait EntityExt<'tu> {
     fn get_sourcefile(&self) -> Option<File>;
 
     fn get_remaining_line(&self) -> Option<String>;
-
-    fn get_reference_recurse(&self) -> Entity<'tu>;
 }
 
 impl<'tu> EntityExt<'tu> for Entity<'tu> {
@@ -45,18 +48,6 @@ impl<'tu> EntityExt<'tu> for Entity<'tu> {
             }
         }
         None
-    }
-
-    fn get_reference_recurse(&self) -> Entity<'tu> {
-        if let Some(reference) = self.get_reference() {
-            if self != &reference {
-                reference.get_reference_recurse()
-            } else {
-                *self
-            }
-        } else {
-            *self
-        }
     }
 }
 
@@ -109,27 +100,49 @@ fn find_includes(
     EntityVisitResult::Continue
 }
 
-fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResult {
-    if !entity.is_in_main_file() {
-        return EntityVisitResult::Continue;
-    }
-
-    // TODO: Function calls in template instantiations
-
+fn mark_includes_impl(entity: Entity, includes: &mut IncludeGraph) {
     match entity.get_kind() {
         EntityKind::DeclRefExpr
         | EntityKind::TypeRef
         | EntityKind::TemplateRef
         | EntityKind::MacroExpansion => {
-            let reference = entity.get_reference_recurse();
-            if !reference.is_in_main_file() {
-                if let Some(to) = reference.get_sourcefile() {
-                    includes.mark_used(&to.get_id());
+            if let Some(reference) = entity.get_reference() {
+                if reference == entity {
+                    return;
+                }
+                if !reference.is_in_main_file() {
+                    if let Some(to) = reference.get_sourcefile() {
+                        includes.mark_used(&to.get_id());
+                    }
+                }
+                mark_includes_impl(reference, includes)
+            }
+        }
+        EntityKind::TypeAliasDecl | EntityKind::TypedefDecl => {
+            if let Some(typeref) = entity.get_typedef_underlying_type() {
+                if let Some(declaration) = typeref.get_declaration() {
+                    if declaration == entity {
+                        return;
+                    }
+                    if !declaration.is_in_main_file() {
+                        if let Some(to) = declaration.get_sourcefile() {
+                            includes.mark_used(&to.get_id());
+                        }
+                    }
+                    mark_includes_impl(declaration, includes)
                 }
             }
         }
         _ => {}
     }
+}
+
+fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResult {
+    if !entity.is_in_main_file() {
+        return EntityVisitResult::Continue;
+    }
+
+    mark_includes_impl(entity, includes);
 
     EntityVisitResult::Recurse
 }
@@ -204,7 +217,6 @@ fn collect_unused_includes(
 }
 
 pub fn unused_includes<'a, P, S>(
-    clang: &'a Clang,
     filepath: P,
     args: &[S],
     ignore_includes: &regex::Regex,
@@ -213,7 +225,7 @@ where
     P: AsRef<Path>,
     S: AsRef<str>,
 {
-    let index = Index::new(clang, false, true);
+    let index = Index::new(&CLANG, false, true);
 
     let result = match index
         .parser(filepath.as_ref())
@@ -238,10 +250,6 @@ where
                     collect_unused_includes(entity, source_range, &unused, &mut result);
                     true
                 });
-
-                // includes
-                //     .serialize(filepath.as_ref().file_name().unwrap())
-                //     .expect("Error serializing incl graph");
 
                 Ok(result)
             } else {
@@ -299,7 +307,6 @@ mod test {
     #[test]
     fn test_unused_includes() {
         let dir = current_dir().unwrap().join("tests/src/refs");
-        let clang = clang::Clang::new().expect("Clang init");
         let ignore_includes = regex::Regex::new("(/private/|[_/]impl[_\\./])").unwrap();
         let args = [""; 0];
 
@@ -307,11 +314,20 @@ mod test {
             let file = file.unwrap();
             if let Some(ext) = file.path().extension() {
                 if ext == "cpp" {
-                    let unused = unused_includes(&clang, file.path(), &args, &ignore_includes)
-                        .expect("Include Err");
+                    let unused =
+                        unused_includes(file.path(), &args, &ignore_includes).expect("Include Err");
                     assert!(unused.is_empty(), "{:?}", &unused);
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_unused_includes_single() {
+        let file = current_dir().unwrap().join("tests/src/refs/UsingT.cpp");
+        let ignore_includes = regex::Regex::new("(/private/|[_/]impl[_\\./])").unwrap();
+        let args = [""; 0];
+        let unused = unused_includes(&file, &args, &ignore_includes).expect("Include Err");
+        assert!(unused.is_empty(), "{:?}", &unused);
     }
 }
