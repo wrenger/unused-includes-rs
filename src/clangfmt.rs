@@ -42,10 +42,6 @@ pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
 }
 
 fn include_ranges<P: AsRef<Path>>(file: P) -> io::Result<Vec<(usize, usize)>> {
-    lazy_static::lazy_static! {
-        static ref RE_PREPROCESSOR: regex::Regex = regex::Regex::new("^[ \\t]*([#/]|$)").unwrap();
-    }
-
     let file = File::open(file)?;
     let reader = BufReader::new(file);
 
@@ -55,11 +51,10 @@ fn include_ranges<P: AsRef<Path>>(file: P) -> io::Result<Vec<(usize, usize)>> {
 
     for (i, line) in reader.lines().enumerate() {
         let line = line?;
-        if RE_PREPROCESSOR.is_match(&line) {
-            if &RE_PREPROCESSOR.captures(&line).unwrap()[1] == "#" {
-                has_preprocessor_stmt = true;
-            }
-        } else {
+        let trimmed_line = line.trim_start();
+        if trimmed_line.starts_with('#') {
+            has_preprocessor_stmt = true;
+        } else if !trimmed_line.is_empty() {
             if has_preprocessor_stmt && start < i - 1 {
                 fmt_ranges.push((start, i - 1));
             }

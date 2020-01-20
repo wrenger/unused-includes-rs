@@ -8,13 +8,15 @@ use clang::{Clang, Entity, EntityKind, EntityVisitResult, Index};
 mod includes;
 use includes::{FileID, IncludeGraph};
 
-trait EntityExt {
+trait EntityExt<'tu> {
     fn get_sourcefile(&self) -> Option<File>;
 
     fn get_remaining_line(&self) -> Option<String>;
+
+    fn get_reference_recurse(&self) -> Entity<'tu>;
 }
 
-impl<'tu> EntityExt for Entity<'tu> {
+impl<'tu> EntityExt<'tu> for Entity<'tu> {
     fn get_sourcefile(&self) -> Option<File> {
         if let Some(location) = self.get_location() {
             let location = location.get_expansion_location();
@@ -43,6 +45,18 @@ impl<'tu> EntityExt for Entity<'tu> {
             }
         }
         None
+    }
+
+    fn get_reference_recurse(&self) -> Entity<'tu> {
+        if let Some(reference) = self.get_reference() {
+            if self != &reference {
+                reference.get_reference_recurse()
+            } else {
+                *self
+            }
+        } else {
+            *self
+        }
     }
 }
 
@@ -107,11 +121,10 @@ fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResu
         | EntityKind::TypeRef
         | EntityKind::TemplateRef
         | EntityKind::MacroExpansion => {
-            if let Some(reference) = entity.get_reference() {
-                if !reference.is_in_main_file() {
-                    if let Some(to) = reference.get_sourcefile() {
-                        includes.mark_used(&to.get_id());
-                    }
+            let reference = entity.get_reference_recurse();
+            if !reference.is_in_main_file() {
+                if let Some(to) = reference.get_sourcefile() {
+                    includes.mark_used(&to.get_id());
                 }
             }
         }
@@ -192,7 +205,7 @@ fn collect_unused_includes(
 
 pub fn unused_includes<'a, P, S>(
     clang: &'a Clang,
-    file: P,
+    filepath: P,
     args: &[S],
     ignore_includes: &regex::Regex,
 ) -> Result<Vec<Include>, ()>
@@ -203,7 +216,7 @@ where
     let index = Index::new(clang, false, true);
 
     let result = match index
-        .parser(file.as_ref())
+        .parser(filepath.as_ref())
         .arguments(args)
         .detailed_preprocessing_record(true)
         .parse()
@@ -217,7 +230,7 @@ where
             tu.get_entity()
                 .visit_children(|entity, _| mark_includes(entity, &mut includes));
 
-            if let Some(file) = tu.get_file(&file) {
+            if let Some(file) = tu.get_file(&filepath) {
                 let unused = includes.unused(&file.get_id());
                 let mut result = Vec::with_capacity(unused.len());
 
@@ -225,6 +238,10 @@ where
                     collect_unused_includes(entity, source_range, &unused, &mut result);
                     true
                 });
+
+                // includes
+                //     .serialize(filepath.as_ref().file_name().unwrap())
+                //     .expect("Error serializing incl graph");
 
                 Ok(result)
             } else {

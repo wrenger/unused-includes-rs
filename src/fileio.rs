@@ -91,8 +91,8 @@ where
         parse_includes_file(&mut file, &RE_INCLUDE, util::is_header_file(&filepath))?;
 
     file.seek(SeekFrom::Start(offset as u64))?;
-    let mut buffer = String::new();
-    file.read_to_string(&mut buffer)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
     file.seek(SeekFrom::Start(offset as u64))?;
 
     for (local, path) in includes
@@ -105,7 +105,7 @@ where
             writeln!(file, "#include <{}>", path)?;
         }
     }
-    write!(file, "{}", &buffer)?;
+    file.write_all(&buffer)?;
 
     Ok(())
 }
