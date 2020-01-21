@@ -35,6 +35,14 @@ where
     P: AsRef<Path>,
     Q: AsRef<Path>,
 {
+    // Relative to file
+    if let Some(parent) = file.as_ref().parent() {
+        let path = parent.join(include.as_ref());
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
     // Looking for absolute includes in the given include paths
     for include_path in include_paths {
         let path = include_path.join(&include);
