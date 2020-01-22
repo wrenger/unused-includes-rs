@@ -234,6 +234,10 @@ where
         .parse()
     {
         Ok(tu) => {
+            for diag in tu.get_diagnostics() {
+                println!("clang: {}", diag);
+            }
+
             let mut includes = IncludeGraph::new();
 
             tu.get_entity()
