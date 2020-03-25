@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use multimap::MultiMap;
@@ -43,17 +44,32 @@ pub fn print_dependency_tree<P: AsRef<Path>>(
     index: &MultiMap<PathBuf, PathBuf>,
     indent: usize,
 ) {
+    let mut visited = HashSet::new();
+    print_dependency_tree_impl(root, index, indent, &mut visited);
+}
+
+fn print_dependency_tree_impl<P: AsRef<Path>>(
+    root: P,
+    index: &MultiMap<PathBuf, PathBuf>,
+    indent: usize,
+    visited: &mut HashSet<PathBuf>,
+) {
     if indent > 0 {
         for _ in 1..indent {
             print!("    ");
         }
         print!("  - ");
     }
-    println!("{}", root.as_ref().to_string_lossy());
-    if let Some(children) = index.get_vec(root.as_ref()) {
-        for child in children {
-            print_dependency_tree(child, index, indent + 1);
+    if visited.insert(PathBuf::from(root.as_ref())) {
+        println!("{}", root.as_ref().to_string_lossy());
+
+        if let Some(children) = index.get_vec(root.as_ref()) {
+            for child in children {
+                print_dependency_tree_impl(child, index, indent + 1, visited);
+            }
         }
+    } else {
+        println!("!circular: {}", root.as_ref().to_string_lossy());
     }
 }
 

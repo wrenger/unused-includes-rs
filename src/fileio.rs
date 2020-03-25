@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -79,11 +80,34 @@ fn parse_includes_file(
     Ok((offset, includes))
 }
 
+pub enum IncludeStatement {
+    Local(String),
+    Global(String),
+}
+
+impl IncludeStatement {
+    fn path<'a>(&'a self) -> &'a str {
+        match self {
+            IncludeStatement::Local(path) => path,
+            IncludeStatement::Global(path) => path,
+        }
+    }
+}
+
+impl fmt::Display for IncludeStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IncludeStatement::Local(path) => write!(f, "#include \"{}\"", path),
+            IncludeStatement::Global(path) => write!(f, "#include <{}>", path),
+        }
+    }
+}
+
 /// Adds the given `includes` in front of the old includes of the given file
 pub fn add_includes<P, I>(filepath: P, includes: I) -> io::Result<()>
 where
     P: AsRef<Path>,
-    I: IntoIterator<Item = (bool, String)>,
+    I: IntoIterator<Item = IncludeStatement>,
 {
     let mut file = OpenOptions::new().read(true).write(true).open(&filepath)?;
 
@@ -95,14 +119,9 @@ where
     file.read_to_end(&mut buffer)?;
     file.seek(SeekFrom::Start(offset as u64))?;
 
-    for (local, path) in includes
-        .into_iter()
-        .filter(|(_, i)| !old_includes.contains(i))
-    {
-        if local {
-            writeln!(file, "#include \"{}\"", path)?;
-        } else {
-            writeln!(file, "#include <{}>", path)?;
+    for include in includes.into_iter() {
+        if !old_includes.contains(include.path()) {
+            writeln!(file, "{}", include)?;
         }
     }
     file.write_all(&buffer)?;

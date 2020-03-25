@@ -160,11 +160,11 @@ impl Include {
     }
 
     /// Returns the include path relative to the file if possible
-    pub fn get_include<P: AsRef<Path>>(
+    pub fn get_local<P: AsRef<Path>>(
         &self,
         file: P,
         include_paths: &[PathBuf],
-    ) -> (bool, String) {
+    ) -> Option<String> {
         // Prefer relative includes if possible
         // Allow relative includes from /src/ and /include/
         if let Some(filedir) = file.as_ref().parent() {
@@ -178,7 +178,7 @@ impl Include {
                         for include_path in include_paths {
                             let path: PathBuf = [include_path, file_relpath].iter().collect();
                             if let Ok(relpath) = self.path.strip_prefix(path) {
-                                return (true, relpath.to_string_lossy().into());
+                                return Some(relpath.to_string_lossy().into());
                             }
                         }
                     }
@@ -189,11 +189,11 @@ impl Include {
         // Check for include paths
         for include_path in include_paths {
             if let Ok(relpath) = self.path.strip_prefix(include_path) {
-                return (true, relpath.to_string_lossy().into());
+                return Some(relpath.to_string_lossy().into());
             }
         }
-        // Fallback for global includes
-        (false, self.name.clone())
+
+        None
     }
 }
 
@@ -281,14 +281,14 @@ mod test {
 
         let include = Include::new("Base.hpp".into(), dir.join("src/Base.hpp"), 0);
         assert_eq!(
-            include.get_include(dir.join("src/Main.cpp"), &include_paths),
-            (true, "Base.hpp".into())
+            include.get_local(dir.join("src/Main.cpp"), &include_paths),
+            Some("Base.hpp".into())
         );
 
         let include = Include::new("Classes.hpp".into(), dir.join("src/refs/Classes.hpp"), 0);
         assert_eq!(
-            include.get_include(dir.join("src/Main.cpp"), &include_paths),
-            (true, "refs/Classes.hpp".into())
+            include.get_local(dir.join("src/Main.cpp"), &include_paths),
+            Some("refs/Classes.hpp".into())
         );
 
         let include = Include::new(
@@ -297,14 +297,14 @@ mod test {
             0,
         );
         assert_eq!(
-            include.get_include(dir.join("src/ref/Main.cpp"), &include_paths),
-            (true, "ExternalRef.hpp".into())
+            include.get_local(dir.join("src/ref/Main.cpp"), &include_paths),
+            Some("ExternalRef.hpp".into())
         );
 
         let include = Include::new("vector".into(), dir.join("/usr/lib/include/vector"), 0);
         assert_eq!(
-            include.get_include(dir.join("Main.cpp"), &include_paths),
-            (false, "vector".into())
+            include.get_local(dir.join("Main.cpp"), &include_paths),
+            None
         );
     }
 
@@ -312,7 +312,7 @@ mod test {
     fn test_unused_includes() {
         let dir = current_dir().unwrap().join("tests/src/refs");
         let ignore_includes = regex::Regex::new("(/private/|[_/]impl[_\\./])").unwrap();
-        let args = [""; 0];
+        let args: [&str; 0] = [];
 
         for file in fs::read_dir(dir).unwrap() {
             let file = file.unwrap();
@@ -330,7 +330,7 @@ mod test {
     fn test_unused_includes_single() {
         let file = current_dir().unwrap().join("tests/src/refs/UsingT.cpp");
         let ignore_includes = regex::Regex::new("(/private/|[_/]impl[_\\./])").unwrap();
-        let args = [""; 0];
+        let args: [&str; 0] = [];
         let unused = unused_includes(&file, &args, &ignore_includes).expect("Include Err");
         assert!(unused.is_empty(), "{:?}", &unused);
     }

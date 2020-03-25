@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env::args;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -97,7 +98,17 @@ fn main() {
         (include_paths, MultiMap::new(), ci_args)
     };
 
-    remove_unused_includes(file, &ci_args, &ignore_includes, &include_paths, &index);
+    println!("Analyzing {}", file.to_string_lossy());
+    let mut visited = HashSet::new();
+
+    remove_unused_includes(
+        file,
+        &ci_args,
+        &ignore_includes,
+        &include_paths,
+        &index,
+        &mut visited,
+    );
 }
 
 fn remove_unused_includes<'a, P, S>(
@@ -106,20 +117,17 @@ fn remove_unused_includes<'a, P, S>(
     ignore_includes: &regex::Regex,
     include_paths: &[PathBuf],
     index: &MultiMap<PathBuf, PathBuf>,
+    visited: &mut HashSet<PathBuf>,
 ) where
     P: AsRef<Path>,
     S: AsRef<str>,
 {
-    if let Ok(includes) = analyze::unused_includes(&file, args, ignore_includes) {
-        if !includes.is_empty() {
-            for include in &includes {
-                println!(
-                    "{}: remove {}",
-                    file.as_ref().to_string_lossy(),
-                    include.name
-                );
-            }
+    if !visited.insert(PathBuf::from(file.as_ref())) {
+        println!(" -> Circular includes: {}", file.as_ref().to_string_lossy());
+    } else if let Ok(includes) = analyze::unused_includes(&file, args, ignore_includes) {
+        println!(" -> Remove {:?}", includes);
 
+        if !includes.is_empty() {
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
             fileio::remove_includes(&file, &lines).expect("Could not remove includes");
             // Sort includes
@@ -128,19 +136,27 @@ fn remove_unused_includes<'a, P, S>(
 
         if let Some(dependencies) = index.get_vec(file.as_ref()) {
             for dependency in dependencies {
-                println!("Check dependency {:?}", dependency);
+                println!("Analyzing {}", dependency.to_string_lossy());
                 // Add removed includes
                 if !includes.is_empty() {
-                    fileio::add_includes(
-                        dependency,
-                        includes
-                            .iter()
-                            .map(|i| i.get_include(&dependency, include_paths)),
-                    )
-                    .expect("Could not propagate includes");
+                    let includes = includes.iter().map(|i| {
+                        i.get_local(&dependency, include_paths).map_or_else(
+                            || fileio::IncludeStatement::Global(i.name.clone()),
+                            |p| fileio::IncludeStatement::Local(p),
+                        )
+                    });
+                    fileio::add_includes(dependency, includes)
+                        .expect("Could not propagate includes");
                 }
 
-                remove_unused_includes(dependency, args, ignore_includes, include_paths, index);
+                remove_unused_includes(
+                    dependency,
+                    args,
+                    ignore_includes,
+                    include_paths,
+                    index,
+                    visited,
+                );
             }
         }
     }
