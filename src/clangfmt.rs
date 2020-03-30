@@ -8,6 +8,7 @@ lazy_static::lazy_static! {
     pub static ref EXEC: Arc<RwLock<String>> = Arc::new(RwLock::new(String::new()));
 }
 
+/// Format (sort) includes of the given file
 pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
     let fmt_ranges = include_ranges(&file)?;
 

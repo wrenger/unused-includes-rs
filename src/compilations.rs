@@ -3,9 +3,9 @@ use std::fs::File;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 
-use multimap::MultiMap;
 use serde::Deserialize;
 
+use super::dependencies::Dependencies;
 use super::util;
 
 #[derive(Deserialize)]
@@ -14,11 +14,13 @@ struct CompilationEntry {
     command: String,
 }
 
+/// Compile commands for the sourcefiles of a project
 pub struct Compilations {
     map: HashMap<PathBuf, String>,
 }
 
 impl Compilations {
+    /// Parse a clang compilation database and collect the compile commands
     pub fn parse<P: AsRef<Path>>(file: P, filter: &regex::Regex) -> Result<Compilations, String> {
         let file = File::open(file).map_err(|e| format!("{}", e))?;
         let commands: Vec<CompilationEntry> =
@@ -34,6 +36,7 @@ impl Compilations {
         })
     }
 
+    /// Collect all include paths contained in the compile commands
     pub fn collect_include_paths(&self) -> Vec<PathBuf> {
         let mut paths: HashSet<PathBuf> = HashSet::new();
 
@@ -48,15 +51,16 @@ impl Compilations {
         paths.into_iter().collect()
     }
 
+    /// Retrieve the corresponding compiler arguments
     pub fn get_related_args<P: AsRef<Path>>(
         &self,
         file: P,
-        include_paths: &MultiMap<PathBuf, PathBuf>,
+        index: &Dependencies,
     ) -> Option<Vec<String>> {
         if let Some(command) = self.map.get(file.as_ref()) {
             parse_args(command)
         } else {
-            let dependencies = include_paths.get(file.as_ref());
+            let dependencies = index.get(file);
             // Check direct dependencies first
             for dependency in dependencies {
                 if let Some(command) = self.map.get(dependency) {
@@ -65,7 +69,7 @@ impl Compilations {
             }
             // Search whole subtree
             for dependency in dependencies {
-                if let Some(args) = self.get_related_args(dependency, include_paths) {
+                if let Some(args) = self.get_related_args(dependency, index) {
                     return Some(args);
                 }
             }
@@ -74,6 +78,7 @@ impl Compilations {
         }
     }
 
+    /// Return all sources
     pub fn sources(&self) -> Vec<&PathBuf> {
         self.map.keys().collect()
     }

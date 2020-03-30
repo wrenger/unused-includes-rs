@@ -4,15 +4,9 @@ use std::path::{Path, PathBuf};
 
 /// Returns whether the given path points to a header file
 pub fn is_header_file<P: AsRef<Path>>(path: P) -> bool {
-    if path.as_ref().is_file() {
-        if let Some(extension) = path.as_ref().extension() {
-            extension == "h" || extension == "hpp"
-        } else {
-            false
-        }
-    } else {
-        false
-    }
+    path.as_ref().is_file()
+        && matches!(path.as_ref().extension(),
+            Some(e) if e == "h" || e == "hpp")
 }
 
 /// Parses the include paths from the given compiler commandline.
@@ -82,6 +76,7 @@ pub fn read_dir_rec<P: AsRef<Path>>(path: P) -> io::Result<ReadDirRec> {
     })
 }
 
+/// Iterator for recursive directory traversal
 pub struct ReadDirRec {
     dirs: Vec<ReadDir>,
 }

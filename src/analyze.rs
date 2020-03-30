@@ -14,23 +14,17 @@ lazy_static::lazy_static! {
 }
 
 trait EntityExt<'tu> {
+    /// Returns the corresponding sourcefile
     fn get_sourcefile(&self) -> Option<File>;
 
+    /// Returns the remaining line after this entity
     fn get_remaining_line(&self) -> Option<String>;
 }
 
 impl<'tu> EntityExt<'tu> for Entity<'tu> {
     fn get_sourcefile(&self) -> Option<File> {
-        if let Some(location) = self.get_location() {
-            let location = location.get_expansion_location();
-            if let Some(file) = location.file {
-                Some(file)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        self.get_location()
+            .and_then(|l| l.get_expansion_location().file)
     }
 
     fn get_remaining_line(&self) -> Option<String> {
@@ -51,6 +45,7 @@ impl<'tu> EntityExt<'tu> for Entity<'tu> {
     }
 }
 
+/// Checks if this include should be ignored
 fn include_should_be_ignored(
     entity: &Entity,
     ignore_includes: &regex::Regex,
@@ -82,6 +77,7 @@ fn include_should_be_ignored(
     }
 }
 
+/// Create the include graph
 fn find_includes(
     entity: Entity,
     ignore_includes: &regex::Regex,
@@ -106,7 +102,8 @@ fn mark_includes_impl(entity: Entity, includes: &mut IncludeGraph) {
         | EntityKind::TypeRef
         | EntityKind::TemplateRef
         | EntityKind::MacroExpansion => {
-            if let Some(reference) = entity.get_reference() {
+            // Prefer definitions over declarations (if existing)
+            if let Some(reference) = entity.get_definition().or_else(|| entity.get_reference()) {
                 if reference == entity {
                     return;
                 }
@@ -137,6 +134,7 @@ fn mark_includes_impl(entity: Entity, includes: &mut IncludeGraph) {
     }
 }
 
+/// Marks all necessary includes
 fn mark_includes(entity: Entity, includes: &mut IncludeGraph) -> EntityVisitResult {
     if !entity.is_in_main_file() {
         return EntityVisitResult::Continue;
@@ -160,11 +158,7 @@ impl Include {
     }
 
     /// Returns the include path relative to the file if possible
-    pub fn get_local<P: AsRef<Path>>(
-        &self,
-        file: P,
-        include_paths: &[PathBuf],
-    ) -> Option<String> {
+    pub fn get_local<P: AsRef<Path>>(&self, file: P, include_paths: &[PathBuf]) -> Option<String> {
         // Prefer relative includes if possible
         // Allow relative includes from /src/ and /include/
         if let Some(filedir) = file.as_ref().parent() {
@@ -197,6 +191,7 @@ impl Include {
     }
 }
 
+/// Locate the unused includes in the sourcefile
 fn collect_unused_includes(
     entity: Entity,
     source_range: SourceRange,
@@ -216,6 +211,7 @@ fn collect_unused_includes(
     }
 }
 
+/// Returns all includes that exist but are not referenced from the sourcefile
 pub fn unused_includes<'a, P, S>(
     filepath: P,
     args: &[S],

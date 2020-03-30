@@ -4,7 +4,6 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::vec::Vec;
 
-use multimap::MultiMap;
 use structopt::StructOpt;
 
 mod analyze;
@@ -12,6 +11,7 @@ mod compilations;
 use compilations::Compilations;
 mod clangfmt;
 mod dependencies;
+use dependencies::Dependencies;
 mod fileio;
 mod util;
 
@@ -75,13 +75,13 @@ fn main() {
             serde_yaml::from_reader(file).expect("Error opening include index")
         } else {
             println!("Creating dependency tree...");
-            let index = dependencies::index(&compilations.sources(), &include_paths, &filter);
+            let index = Dependencies::create(&compilations.sources(), &include_paths, &filter);
             let file = File::create("dependencies.json").expect("Could not backup index");
             serde_yaml::to_writer(file, &index).expect("Could not backup index");
             index
         };
 
-        dependencies::print_dependency_tree(&file, &index, 0);
+        index.print(&file);
 
         let mut new_ci_args = compilations
             .get_related_args(&file, &index)
@@ -95,7 +95,7 @@ fn main() {
         let include_paths = util::include_paths(&ci_args.join(" "))
             .map(|e| PathBuf::from(e))
             .collect::<Vec<_>>();
-        (include_paths, MultiMap::new(), ci_args)
+        (include_paths, Dependencies::new(), ci_args)
     };
 
     println!("Analyzing {}", file.to_string_lossy());
@@ -116,7 +116,7 @@ fn remove_unused_includes<'a, P, S>(
     args: &[S],
     ignore_includes: &regex::Regex,
     include_paths: &[PathBuf],
-    index: &MultiMap<PathBuf, PathBuf>,
+    index: &Dependencies,
     visited: &mut HashSet<PathBuf>,
 ) where
     P: AsRef<Path>,
@@ -134,30 +134,27 @@ fn remove_unused_includes<'a, P, S>(
             clangfmt::includes(&file).expect("Clang-format failed");
         }
 
-        if let Some(dependencies) = index.get_vec(file.as_ref()) {
-            for dependency in dependencies {
-                println!("Analyzing {}", dependency.to_string_lossy());
-                // Add removed includes
-                if !includes.is_empty() {
-                    let includes = includes.iter().map(|i| {
-                        i.get_local(&dependency, include_paths).map_or_else(
-                            || fileio::IncludeStatement::Global(i.name.clone()),
-                            |p| fileio::IncludeStatement::Local(p),
-                        )
-                    });
-                    fileio::add_includes(dependency, includes)
-                        .expect("Could not propagate includes");
-                }
-
-                remove_unused_includes(
-                    dependency,
-                    args,
-                    ignore_includes,
-                    include_paths,
-                    index,
-                    visited,
-                );
+        for dependency in index.get(file.as_ref()) {
+            println!("Analyzing {}", dependency.to_string_lossy());
+            // Add removed includes
+            if !includes.is_empty() {
+                let includes = includes.iter().map(|i| {
+                    i.get_local(&dependency, include_paths).map_or_else(
+                        || fileio::IncludeStatement::Global(i.name.clone()),
+                        |p| fileio::IncludeStatement::Local(p),
+                    )
+                });
+                fileio::add_includes(dependency, includes).expect("Could not propagate includes");
             }
+
+            remove_unused_includes(
+                dependency,
+                args,
+                ignore_includes,
+                include_paths,
+                index,
+                visited,
+            );
         }
     }
 }
