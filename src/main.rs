@@ -72,12 +72,12 @@ fn main() {
         let index = if let Some(index) = index {
             println!("Loading dependency tree...");
             let file = File::open(index).expect("Error opening include index");
-            serde_yaml::from_reader(file).expect("Error opening include index")
+            serde_json::from_reader(file).expect("Error parsing include index")
         } else {
             println!("Creating dependency tree...");
             let index = Dependencies::create(&compilations.sources(), &include_paths, &filter);
             let file = File::create("dependencies.json").expect("Could not backup index");
-            serde_yaml::to_writer(file, &index).expect("Could not backup index");
+            serde_json::to_writer(file, &index).expect("Could not backup index");
             index
         };
 
@@ -93,7 +93,7 @@ fn main() {
     } else {
         println!("No compilation database provided. Analyzing only the given source.");
         let include_paths = util::include_paths(&ci_args.join(" "))
-            .map(|e| PathBuf::from(e))
+            .map(PathBuf::from)
             .collect::<Vec<_>>();
         (include_paths, Dependencies::new(), ci_args)
     };
@@ -111,7 +111,7 @@ fn main() {
     );
 }
 
-fn remove_unused_includes<'a, P, S>(
+fn remove_unused_includes<P, S>(
     file: P,
     args: &[S],
     ignore_includes: &regex::Regex,
@@ -141,7 +141,7 @@ fn remove_unused_includes<'a, P, S>(
                 let includes = includes.iter().map(|i| {
                     i.get_local(&dependency, include_paths).map_or_else(
                         || fileio::IncludeStatement::Global(i.name.clone()),
-                        |p| fileio::IncludeStatement::Local(p),
+                        fileio::IncludeStatement::Local,
                     )
                 });
                 fileio::add_includes(dependency, includes).expect("Could not propagate includes");

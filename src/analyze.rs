@@ -71,7 +71,7 @@ fn include_should_be_ignored(
             }
         }
         // Ignore corresponding headers in sourcefiles
-        return from.get_path().file_stem() == to.get_path().file_stem();
+        from.get_path().file_stem() == to.get_path().file_stem()
     } else {
         false
     }
@@ -212,7 +212,7 @@ fn collect_unused_includes(
 }
 
 /// Returns all includes that exist but are not referenced from the sourcefile
-pub fn unused_includes<'a, P, S>(
+pub fn unused_includes<P, S>(
     filepath: P,
     args: &[S],
     ignore_includes: &regex::Regex,
@@ -221,9 +221,7 @@ where
     P: AsRef<Path>,
     S: AsRef<str>,
 {
-    let index = Index::new(&CLANG, false, true);
-
-    let result = match index
+    match Index::new(&CLANG, false, true)
         .parser(filepath.as_ref())
         .arguments(args)
         .detailed_preprocessing_record(true)
@@ -260,8 +258,7 @@ where
             eprintln!("Parsing error: {}", err);
             Err(())
         }
-    };
-    result
+    }
 }
 
 #[cfg(test)]

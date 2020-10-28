@@ -94,7 +94,7 @@ impl IncludeGraph {
 
         if let Some(s_node) = self.includes.get_mut(start) {
             s_node.costs = 0;
-            s_node.pred = Some(start.clone());
+            s_node.pred = Some(*start);
         }
 
         let edges = self.edges();
@@ -103,14 +103,14 @@ impl IncludeGraph {
         for direct_successor in edges.iter().filter(|e| &e.0 == start) {
             if let Some(node) = self.includes.get_mut(&direct_successor.1) {
                 node.costs = 1;
-                node.pred = Some((&direct_successor.1).clone());
+                node.pred = Some(direct_successor.1);
             }
         }
 
         for _ in 1..self.len() {
             for (u, v) in &edges {
                 if let Some(u_node) = self.includes.get(u) {
-                    let (u_costs, u_pred) = (u_node.costs, u_node.pred.clone());
+                    let (u_costs, u_pred) = (u_node.costs, u_node.pred);
 
                     if let Some(v_node) = self.includes.get_mut(v) {
                         if u_costs + 1 < v_node.costs {
@@ -130,9 +130,9 @@ impl IncludeGraph {
         for (key, value) in &self.includes {
             for to in &value.includes {
                 if value.used {
-                    used_edges.push((key.clone(), to.clone()));
+                    used_edges.push((*key, *to));
                 } else {
-                    unused_edges.push((key.clone(), to.clone()));
+                    unused_edges.push((*key, *to));
                 }
             }
         }

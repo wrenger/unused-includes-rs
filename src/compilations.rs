@@ -24,7 +24,7 @@ impl Compilations {
     pub fn parse<P: AsRef<Path>>(file: P, filter: &regex::Regex) -> Result<Compilations, String> {
         let file = File::open(file).map_err(|e| format!("{}", e))?;
         let commands: Vec<CompilationEntry> =
-            serde_yaml::from_reader(file).map_err(|e| format!("{}", e))?;
+            serde_json::from_reader(file).map_err(|e| format!("{}", e))?;
 
         Ok(Compilations {
             map: HashMap::from_iter(

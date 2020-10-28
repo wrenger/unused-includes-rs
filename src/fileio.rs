@@ -54,9 +54,7 @@ fn parse_includes_file(
     let mut includes = HashSet::new();
 
     for line in buffer.split('\n') {
-        if RE_PRAGMA_ONCE.is_match(line) {
-            depth += 1;
-        } else if RE_IF.is_match(line) {
+        if RE_PRAGMA_ONCE.is_match(line) || RE_IF.is_match(line){
             depth += 1;
         } else if RE_ENDIF.is_match(line) {
             depth -= 1;
@@ -86,7 +84,7 @@ pub enum IncludeStatement {
 }
 
 impl IncludeStatement {
-    fn path<'a>(&'a self) -> &'a str {
+    fn path(&self) -> &str {
         match self {
             IncludeStatement::Local(path) => path,
             IncludeStatement::Global(path) => path,
@@ -145,8 +143,8 @@ where
         for (i, line) in original.split(b'\n').enumerate() {
             let line = line?;
             if !lines_to_remove.contains(&i) {
-                tempfile.write(&line)?;
-                tempfile.write(b"\n")?;
+                tempfile.write_all(&line)?;
+                tempfile.write_all(b"\n")?;
             }
         }
     };
