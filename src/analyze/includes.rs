@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::iter::{self, FromIterator};
+use std::iter;
 use std::usize;
 
 pub type FileID = (u64, u64, u64);
@@ -24,7 +24,7 @@ impl IncludeEntry {
 
     fn new_with(include: FileID) -> IncludeEntry {
         IncludeEntry {
-            includes: HashSet::from_iter(iter::once(include)),
+            includes: iter::once(include).collect(),
             used: false,
             costs: 0,
             pred: None,
@@ -62,7 +62,7 @@ impl IncludeGraph {
         } else {
             let mut entry = IncludeEntry::new();
             entry.used = true;
-            self.includes.insert(key.clone(), entry);
+            self.includes.insert(*key, entry);
         }
     }
 
@@ -172,7 +172,7 @@ mod test {
 
         let unused = (1, 0, 0);
         assert_eq!(
-            &HashSet::from_iter(iter::once(&unused)),
+            &iter::once(&unused).collect::<HashSet<_>>(),
             &graph.unused(&(0, 0, 0))
         );
     }

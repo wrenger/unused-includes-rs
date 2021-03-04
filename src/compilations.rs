@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -27,12 +26,11 @@ impl Compilations {
             serde_json::from_reader(file).map_err(|e| format!("{}", e))?;
 
         Ok(Compilations {
-            map: HashMap::from_iter(
-                commands
-                    .into_iter()
-                    .filter(|e| filter.is_match(&e.file.to_str().expect("Malformed db source")))
-                    .map(|e| (e.file, e.command)),
-            ),
+            map: commands
+                .into_iter()
+                .filter(|e| filter.is_match(&e.file.to_str().expect("Malformed db source")))
+                .map(|e| (e.file, e.command))
+                .collect(),
         })
     }
 
