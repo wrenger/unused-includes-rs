@@ -9,11 +9,11 @@ lazy_static::lazy_static! {
 }
 
 /// Format (sort) includes of the given file
-pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
-    let fmt_ranges = include_ranges(&file)?;
+pub fn includes(file: &Path) -> io::Result<()> {
+    let fmt_ranges = include_ranges(file)?;
 
     match Command::new(&*EXEC.read().unwrap())
-        .arg(file.as_ref())
+        .arg(file)
         .arg("-i")
         .arg("-sort-includes")
         .args(
@@ -42,7 +42,7 @@ pub fn includes<P: AsRef<Path>>(file: P) -> io::Result<()> {
     Ok(())
 }
 
-fn include_ranges<P: AsRef<Path>>(file: P) -> io::Result<Vec<(usize, usize)>> {
+fn include_ranges(file: &Path) -> io::Result<Vec<(usize, usize)>> {
     let file = File::open(file)?;
 
     let mut fmt_ranges = Vec::new();

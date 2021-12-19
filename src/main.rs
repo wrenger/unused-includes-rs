@@ -64,7 +64,7 @@ fn main() {
     let (include_paths, index, ci_args) = if let Some(comp) = comp {
         println!("Parsing compilaton database...");
         let compilations =
-            Compilations::parse(comp, &filter).expect("Error parsing compilation database");
+            Compilations::parse(&comp, &filter).expect("Error parsing compilation database");
 
         let include_paths = compilations.collect_include_paths();
         println!("Include paths: {:?}", include_paths);
@@ -102,7 +102,7 @@ fn main() {
     let mut visited = HashSet::new();
 
     remove_unused_includes(
-        file,
+        &file,
         &ci_args,
         &ignore_includes,
         &include_paths,
@@ -111,35 +111,32 @@ fn main() {
     );
 }
 
-fn remove_unused_includes<P, S>(
-    file: P,
-    args: &[S],
+fn remove_unused_includes(
+    file: &Path,
+    args: &[String],
     ignore_includes: &regex::Regex,
     include_paths: &[PathBuf],
     index: &Dependencies,
     visited: &mut HashSet<PathBuf>,
-) where
-    P: AsRef<Path>,
-    S: AsRef<str>,
-{
-    if !visited.insert(PathBuf::from(file.as_ref())) {
-        println!(" -> Circular includes: {}", file.as_ref().to_string_lossy());
-    } else if let Ok(includes) = analyze::unused_includes(&file, args, ignore_includes) {
+) {
+    if !visited.insert(PathBuf::from(file)) {
+        println!(" -> Circular includes: {}", file.to_string_lossy());
+    } else if let Ok(includes) = analyze::unused_includes(file, args, ignore_includes) {
         println!(" -> Remove {:?}", includes);
 
         if !includes.is_empty() {
             let lines = includes.iter().map(|i| i.line).collect::<Vec<_>>();
-            fileio::remove_includes(&file, &lines).expect("Could not remove includes");
+            fileio::remove_includes(file, &lines).expect("Could not remove includes");
             // Sort includes
-            clangfmt::includes(&file).expect("Clang-format failed");
+            clangfmt::includes(file).expect("Clang-format failed");
         }
 
-        for dependency in index.get(file.as_ref()) {
+        for dependency in index.get(file) {
             println!("Analyzing {}", dependency.to_string_lossy());
             // Add removed includes
             if !includes.is_empty() {
                 let includes = includes.iter().map(|i| {
-                    i.get_local(&dependency, include_paths).map_or_else(
+                    i.get_local(dependency, include_paths).map_or_else(
                         || fileio::IncludeStatement::Global(i.name.clone()),
                         fileio::IncludeStatement::Local,
                     )

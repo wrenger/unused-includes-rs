@@ -21,8 +21,8 @@ lazy_static::lazy_static! {
 }
 
 /// Collect includes ignoring those defined in #if..#endif blocks.
-pub fn parse_includes<P: AsRef<Path>>(path: P) -> HashSet<String> {
-    let is_header = util::is_header_file(&path);
+pub fn parse_includes(path: &Path) -> HashSet<String> {
+    let is_header = util::is_header_file(path);
     if let Ok(mut file) = File::open(path) {
         let (_, incudes) =
             parse_includes_file(&mut file, &RE_LOCAL_INCLUDE, is_header).unwrap_or_default();
@@ -54,7 +54,7 @@ fn parse_includes_file(
     let mut includes = HashSet::new();
 
     for line in buffer.split('\n') {
-        if RE_PRAGMA_ONCE.is_match(line) || RE_IF.is_match(line){
+        if RE_PRAGMA_ONCE.is_match(line) || RE_IF.is_match(line) {
             depth += 1;
         } else if RE_ENDIF.is_match(line) {
             depth -= 1;
@@ -102,22 +102,21 @@ impl fmt::Display for IncludeStatement {
 }
 
 /// Adds the given `includes` in front of the old includes of the given file
-pub fn add_includes<P, I>(filepath: P, includes: I) -> io::Result<()>
+pub fn add_includes<I>(filepath: &Path, includes: I) -> io::Result<()>
 where
-    P: AsRef<Path>,
-    I: IntoIterator<Item = IncludeStatement>,
+    I: Iterator<Item = IncludeStatement>,
 {
     let mut file = OpenOptions::new().read(true).write(true).open(&filepath)?;
 
     let (offset, old_includes) =
-        parse_includes_file(&mut file, &RE_INCLUDE, util::is_header_file(&filepath))?;
+        parse_includes_file(&mut file, &RE_INCLUDE, util::is_header_file(filepath))?;
 
     file.seek(SeekFrom::Start(offset as u64))?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
     file.seek(SeekFrom::Start(offset as u64))?;
 
-    for include in includes.into_iter() {
+    for include in includes {
         if !old_includes.contains(include.path()) {
             writeln!(file, "{}", include)?;
         }
@@ -128,13 +127,10 @@ where
 }
 
 /// Removes the `includes` at the given lines from the `file`.
-pub fn remove_includes<P>(file: P, includes: &[usize]) -> io::Result<()>
-where
-    P: AsRef<Path>,
-{
-    let temppath = file.as_ref().with_extension(".tmp");
+pub fn remove_includes(file: &Path, includes: &[usize]) -> io::Result<()> {
+    let temppath = file.with_extension(".tmp");
     {
-        let original = BufReader::new(File::open(&file)?);
+        let original = BufReader::new(File::open(file)?);
         let mut tempfile = BufWriter::new(File::create(&temppath)?);
 
         // line numbers starting with 1
@@ -149,8 +145,8 @@ where
         }
     };
 
-    fs::remove_file(&file)?;
-    fs::rename(&temppath, &file)?;
+    fs::remove_file(file)?;
+    fs::rename(&temppath, file)?;
 
     Ok(())
 }

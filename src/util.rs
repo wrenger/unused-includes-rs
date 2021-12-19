@@ -3,9 +3,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// Returns whether the given path points to a header file
-pub fn is_header_file<P: AsRef<Path>>(path: P) -> bool {
-    path.as_ref().is_file()
-        && matches!(path.as_ref().extension(),
+pub fn is_header_file(path: &Path) -> bool {
+    path.is_file()
+        && matches!(path.extension(),
             Some(e) if e == "h" || e == "hpp")
 }
 
@@ -24,14 +24,10 @@ pub fn include_paths(command: &str) -> impl Iterator<Item = &str> {
 /// Finds the corresponding filepath to the given `include`.
 ///
 /// It also handles relative includes and 'src/main/...' is correctly resolved.
-pub fn find_include<P, Q>(file: P, include: Q, include_paths: &[PathBuf]) -> Option<PathBuf>
-where
-    P: AsRef<Path>,
-    Q: AsRef<Path>,
-{
+pub fn find_include(file: &Path, include: &Path, include_paths: &[PathBuf]) -> Option<PathBuf> {
     // Relative to file
-    if let Some(parent) = file.as_ref().parent() {
-        let path = parent.join(include.as_ref());
+    if let Some(parent) = file.parent() {
+        let path = parent.join(include);
         if path.exists() {
             return Some(path);
         }
@@ -48,7 +44,6 @@ where
     // Looking for relative includes
     // Also 'src/main/...' is correctly resolved
     let mut relpath: PathBuf = file
-        .as_ref()
         .components()
         .map(|e| e.as_os_str())
         .skip_while(|&e| e != "include" && e != "src")
@@ -70,7 +65,7 @@ where
 }
 
 /// Walks through the given directory tree recursively.
-pub fn read_dir_rec<P: AsRef<Path>>(path: P) -> io::Result<ReadDirRec> {
+pub fn read_dir_rec(path: &Path) -> io::Result<ReadDirRec> {
     Ok(ReadDirRec {
         dirs: vec![fs::read_dir(path)?],
     })
@@ -115,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_read_dir_rec() {
-        for path in read_dir_rec("target").unwrap() {
+        for path in read_dir_rec(Path::new("target")).unwrap() {
             println!("{:?}", path.unwrap().path());
         }
     }
@@ -124,16 +119,16 @@ mod tests {
     fn test_find_include() {
         assert_eq!(
             find_include(
-                "tests/src/refs/Main.cpp",
-                "Functions.hpp",
+                Path::new("tests/src/refs/Main.cpp"),
+                Path::new("Functions.hpp"),
                 &[PathBuf::from("tests/src")],
             ),
             Some(PathBuf::from("tests/src/refs/Functions.hpp"))
         );
         assert_eq!(
             find_include(
-                "tests/src/refs/Main.cpp",
-                "Unused.hpp",
+                Path::new("tests/src/refs/Main.cpp"),
+                Path::new("Unused.hpp"),
                 &[PathBuf::from("tests/src")],
             ),
             Some(PathBuf::from("tests/src/Unused.hpp"))

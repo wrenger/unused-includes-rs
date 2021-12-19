@@ -20,7 +20,7 @@ pub struct Compilations {
 
 impl Compilations {
     /// Parse a clang compilation database and collect the compile commands
-    pub fn parse<P: AsRef<Path>>(file: P, filter: &regex::Regex) -> Result<Compilations, String> {
+    pub fn parse(file: &Path, filter: &regex::Regex) -> Result<Compilations, String> {
         let file = File::open(file).map_err(|e| format!("{}", e))?;
         let commands: Vec<CompilationEntry> =
             serde_json::from_reader(file).map_err(|e| format!("{}", e))?;
@@ -28,7 +28,7 @@ impl Compilations {
         Ok(Compilations {
             map: commands
                 .into_iter()
-                .filter(|e| filter.is_match(&e.file.to_str().expect("Malformed db source")))
+                .filter(|e| filter.is_match(e.file.to_str().expect("Malformed db source")))
                 .map(|e| (e.file, e.command))
                 .collect(),
         })
@@ -50,12 +50,8 @@ impl Compilations {
     }
 
     /// Retrieve the corresponding compiler arguments
-    pub fn get_related_args<P: AsRef<Path>>(
-        &self,
-        file: P,
-        index: &Dependencies,
-    ) -> Option<Vec<String>> {
-        if let Some(command) = self.map.get(file.as_ref()) {
+    pub fn get_related_args(&self, file: &Path, index: &Dependencies) -> Option<Vec<String>> {
+        if let Some(command) = self.map.get(file) {
             parse_args(command)
         } else {
             let dependencies = index.get(file);
@@ -77,8 +73,8 @@ impl Compilations {
     }
 
     /// Return all sources
-    pub fn sources(&self) -> Vec<&PathBuf> {
-        self.map.keys().collect()
+    pub fn sources(&self) -> Vec<&Path> {
+        self.map.keys().map(PathBuf::as_path).collect()
     }
 }
 

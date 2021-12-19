@@ -19,28 +19,23 @@ impl Dependencies {
     }
 
     /// Creates an index with all sources and their dependencies (sources that include them).
-    pub fn create<P>(files: &[P], directories: &[PathBuf], filter: &regex::Regex) -> Dependencies
-    where
-        P: AsRef<Path>,
-    {
+    pub fn create(files: &[&Path], directories: &[PathBuf], filter: &regex::Regex) -> Dependencies {
         let mut dependencies = Dependencies {
             index: MultiMap::new(),
         };
 
         for file in files {
-            if filter.is_match(file.as_ref().to_str().unwrap()) {
-                dependencies.add(file, directories);
+            if filter.is_match(file.to_str().unwrap()) {
+                dependencies.add(file.as_ref(), directories);
             }
         }
 
         for dir in directories {
             if let Ok(read_dir) = util::read_dir_rec(dir) {
                 for path in read_dir {
-                    if let Ok(path) = path {
-                        let path = path.path();
-                        if filter.is_match(path.to_str().unwrap()) && util::is_header_file(&path) {
-                            dependencies.add(&path, directories);
-                        }
+                    let path = path.unwrap().path();
+                    if filter.is_match(path.to_str().unwrap()) && util::is_header_file(&path) {
+                        dependencies.add(&path, directories);
                     }
                 }
             }
@@ -49,22 +44,22 @@ impl Dependencies {
         dependencies
     }
 
-    pub fn add<P: AsRef<Path>>(&mut self, file: P, include_paths: &[PathBuf]) {
-        for include in fileio::parse_includes(&file) {
-            if let Some(include) = util::find_include(&file, &include, include_paths) {
+    pub fn add(&mut self, file: &Path, include_paths: &[PathBuf]) {
+        for include in fileio::parse_includes(file) {
+            if let Some(include) = util::find_include(file, Path::new(&include), include_paths) {
                 if let Ok(include) = include.canonicalize() {
-                    if let Ok(file) = file.as_ref().canonicalize() {
+                    if let Ok(file) = file.canonicalize() {
                         self.index.insert(include, file);
                     }
                 }
             } else {
-                eprintln!("Missing include {} {:?}", include, file.as_ref());
+                eprintln!("Missing include {} {:?}", include, file);
             }
         }
     }
 
-    pub fn get<P: AsRef<Path>>(&self, file: P) -> &[PathBuf] {
-        if let Some(result) = self.index.get_vec(file.as_ref()) {
+    pub fn get(&self, file: &Path) -> &[PathBuf] {
+        if let Some(result) = self.index.get_vec(file) {
             result
         } else {
             &[]
@@ -72,7 +67,7 @@ impl Dependencies {
     }
 
     /// Print the dependency tree with the given `root` file
-    pub fn print<P: AsRef<Path>>(&self, root: P) {
+    pub fn print(&self, root: &Path) {
         let mut visited = HashSet::new();
         self.print_impl(root.as_ref(), 0, &mut visited);
     }
